@@ -1,511 +1,535 @@
 --[[
-	اسم السكربت: Simple Mobile Luau Executor & Learning Hub
+	اسم السكربت: Classic Executor Pro (50 Learn Scripts + Enhanced Save)
 	المكان: StarterPlayer > StarterPlayerScripts (LocalScript)
-	الوصف: واجهة بسيطة وعصرية للهواتف لتشغيل الأكواد وحفظها وتصفح 20 سكربت تعليمي.
+	الوصف: واجهة كلاسيكية بسيطة قابلة للسحب، زر صغير 52x52، 50 سكربت تعليمي مع بحث، ونظام حفظ محسّن.
 ]]
 
 -- 1. تعريف الخدمات المطلوبة
 local Players = game:GetService("Players")
 local GuiService = game:GetService("GuiService")
 local HttpService = game:GetService("HttpService")
-local DataStoreService = game:GetService("DataStoreService") -- مرجعية للخدمات (الحفظ المحلي يتم في ذاكرة الجلسة ليعمل على LocalScript)
+local DataStoreService = game:GetService("DataStoreService")
+local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
-local Lighting = game:GetService("Lighting")
 
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
--- 2. قائمة ثابتة تحتوي بالضبط على 20 سكربت تعليمياً
+-- 2. قائمة ثابتة تحتوي على 50 سكربتاً تعليمياً
 local LearnScripts = {
-	{
-		Title = "1. تغيير لون جسم اللاعب",
-		Desc = "يغيّر لون أجزاء الشخصية إلى الأزرق",
-		Code = [[local char = game.Players.LocalPlayer.Character
+	{ Title = "1. تغيير لون جسم اللاعب", Desc = "تلوين أجزاء الشخصية بلون أزرق كلاسيكي", Code = [[local char = game.Players.LocalPlayer.Character
 if char then
-	for _, part in ipairs(char:GetChildren()) do
-		if part:IsA("BasePart") then
-			part.Color = Color3.fromRGB(0, 162, 255)
-		end
+	for _, p in ipairs(char:GetChildren()) do
+		if p:IsA("BasePart") then p.Color = Color3.fromRGB(0, 120, 215) end
 	end
-end]]
-	},
-	{
-		Title = "2. زيادة سرعة الجري (60)",
-		Desc = "يرفع WalkSpeed إلى 60",
-		Code = [[local hum = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
-if hum then hum.WalkSpeed = 60 end]]
-	},
-	{
-		Title = "3. زيادة قوة القفز (100)",
-		Desc = "يرفع JumpPower أو JumpHeight",
-		Code = [[local hum = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
-if hum then
-	hum.UseJumpPower = true
-	hum.JumpPower = 100
-end]]
-	},
-	{
-		Title = "4. إظهار اسم فوق الرأس",
-		Desc = "يضيف BillboardGui باسم اللاعب فوق رأسه",
-		Code = [[local char = game.Players.LocalPlayer.Character
+end]] },
+	{ Title = "2. زيادة سرعة الجري (60)", Desc = "رفع WalkSpeed إلى 60", Code = [[local hum = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+if hum then hum.WalkSpeed = 60 end]] },
+	{ Title = "3. إعادة سرعة الجري (16)", Desc = "إعادة WalkSpeed إلى الوضع الافتراضي", Code = [[local hum = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+if hum then hum.WalkSpeed = 16 end]] },
+	{ Title = "4. زيادة قوة القفز (100)", Desc = "رفع JumpPower إلى 100", Code = [[local hum = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+if hum then hum.UseJumpPower = true; hum.JumpPower = 100 end]] },
+	{ Title = "5. إعادة قوة القفز (50)", Desc = "إعادة JumpPower إلى 50", Code = [[local hum = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+if hum then hum.UseJumpPower = true; hum.JumpPower = 50 end]] },
+	{ Title = "6. إظهار اسم فوق الرأس", Desc = "إضافة BillboardGui باسم اللاعب فوق الرأس", Code = [[local char = game.Players.LocalPlayer.Character
 local head = char and char:FindFirstChild("Head")
 if head then
-	local old = head:FindFirstChild("CustomTag")
-	if old then old:Destroy() end
-	local bb = Instance.new("BillboardGui")
-	bb.Name = "CustomTag"
-	bb.Size = UDim2.new(0, 160, 0, 40)
-	bb.StudsOffset = Vector3.new(0, 2.5, 0)
-	bb.AlwaysOnTop = true
-	bb.Parent = head
-	local lbl = Instance.new("TextLabel")
-	lbl.Size = UDim2.new(1, 0, 1, 0)
-	lbl.BackgroundTransparency = 1
-	lbl.Text = game.Players.LocalPlayer.DisplayName
-	lbl.TextColor3 = Color3.fromRGB(255, 255, 255)
-	lbl.TextScaled = true
-	lbl.Font = Enum.Font.GothamBold
-	lbl.Parent = bb
-end]]
-	},
-	{
-		Title = "5. تغيير الوقت إلى الليل",
-		Desc = "يضبط ClockTime في Lighting على 0",
-		Code = [[game:GetService("Lighting").ClockTime = 0]]
-	},
-	{
-		Title = "6. تغيير الوقت إلى النهار",
-		Desc = "يضبط ClockTime في Lighting على 14",
-		Code = [[game:GetService("Lighting").ClockTime = 14]]
-	},
-	{
-		Title = "7. إضافة ضباب خفيف للطقس",
-		Desc = "يضيف Atmosphere لبيئة اللعب",
-		Code = [[local lighting = game:GetService("Lighting")
-local atm = lighting:FindFirstChildOfClass("Atmosphere") or Instance.new("Atmosphere", lighting)
-atm.Density = 0.45
-atm.Haze = 2]]
-	},
-	{
-		Title = "8. جعل اللاعب نصف شفاف",
-		Desc = "يضبط شفافية أجزاء الشخصية إلى 0.5",
-		Code = [[local char = game.Players.LocalPlayer.Character
+	if head:FindFirstChild("ClassicTag") then head.ClassicTag:Destroy() end
+	local bb = Instance.new("BillboardGui", head)
+	bb.Name = "ClassicTag"; bb.Size = UDim2.new(0, 150, 0, 34); bb.StudsOffset = Vector3.new(0, 2.5, 0); bb.AlwaysOnTop = true
+	local lbl = Instance.new("TextLabel", bb)
+	lbl.Size = UDim2.new(1, 0, 1, 0); lbl.BackgroundTransparency = 1; lbl.Text = game.Players.LocalPlayer.DisplayName
+	lbl.TextColor3 = Color3.fromRGB(255, 255, 255); lbl.TextScaled = true; lbl.Font = Enum.Font.SourceSansBold
+end]] },
+	{ Title = "7. إزالة الاسم فوق الرأس", Desc = "حذف لوحة الاسم المضافة على الرأس", Code = [[local head = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("Head")
+if head and head:FindFirstChild("ClassicTag") then head.ClassicTag:Destroy() end]] },
+	{ Title = "8. وقت النهار (14)", Desc = "ضبط ClockTime في Lighting على 14", Code = [[game:GetService("Lighting").ClockTime = 14]] },
+	{ Title = "9. وقت الغروب (18)", Desc = "ضبط ClockTime في Lighting على 18", Code = [[game:GetService("Lighting").ClockTime = 18]] },
+	{ Title = "10. وقت الليل (0)", Desc = "ضبط ClockTime في Lighting على 0", Code = [[game:GetService("Lighting").ClockTime = 0]] },
+	{ Title = "11. إضافة ضباب خفيف", Desc = "إضافة Atmosphere للبيئة", Code = [[local l = game:GetService("Lighting")
+local atm = l:FindFirstChildOfClass("Atmosphere") or Instance.new("Atmosphere", l)
+atm.Density = 0.4; atm.Haze = 2]] },
+	{ Title = "12. إزالة الضباب", Desc = "حذف Atmosphere من Lighting", Code = [[local atm = game:GetService("Lighting"):FindFirstChildOfClass("Atmosphere")
+if atm then atm:Destroy() end]] },
+	{ Title = "13. جعل الشخصية نصف شفافة", Desc = "ضبط Transparency للأجزاء على 0.5", Code = [[local char = game.Players.LocalPlayer.Character
 if char then
-	for _, part in ipairs(char:GetChildren()) do
-		if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
-			part.Transparency = 0.5
-		end
+	for _, p in ipairs(char:GetChildren()) do
+		if p:IsA("BasePart") and p.Name ~= "HumanoidRootPart" then p.Transparency = 0.5 end
 	end
-end]]
-	},
-	{
-		Title = "9. إعادة الشخصية للوضع الطبيعي",
-		Desc = "يعيد السرعة والقفز والشفافية والألوان",
-		Code = [[local player = game.Players.LocalPlayer
-local char = player.Character
+end]] },
+	{ Title = "14. إعادة الشفافية للوضع الطبيعي", Desc = "إعادة Transparency إلى 0", Code = [[local char = game.Players.LocalPlayer.Character
 if char then
-	local hum = char:FindFirstChildOfClass("Humanoid")
-	if hum then
-		hum.WalkSpeed = 16
-		hum.JumpPower = 50
+	for _, p in ipairs(char:GetChildren()) do
+		if p:IsA("BasePart") and p.Name ~= "HumanoidRootPart" then p.Transparency = 0 end
 	end
-	for _, part in ipairs(char:GetChildren()) do
-		if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
-			part.Transparency = 0
-		end
-	end
-end]]
-	},
-	{
-		Title = "10. وضع دائرة ضوئية حول اللاعب",
-		Desc = "يضيف PointLight إلى HumanoidRootPart",
-		Code = [[local root = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+end]] },
+	{ Title = "15. إضافة إضاءة حول اللاعب", Desc = "إضافة PointLight إلى HumanoidRootPart", Code = [[local root = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
 if root then
-	local light = root:FindFirstChild("PlayerGlow") or Instance.new("PointLight", root)
-	light.Name = "PlayerGlow"
-	light.Range = 18
-	light.Brightness = 3
-end]]
-	},
-	{
-		Title = "11. تكبير مجال الرؤية (FOV)",
-		Desc = "يضبط FieldOfView للكاميرا إلى 95",
-		Code = [[workspace.CurrentCamera.FieldOfView = 95]]
-	},
-	{
-		Title = "12. إعادة مجال الرؤية (FOV 70)",
-		Desc = "يعيد الكاميرا إلى 70",
-		Code = [[workspace.CurrentCamera.FieldOfView = 70]]
-	},
-	{
-		Title = "13. إنشاء منصة تحت قدميك",
-		Desc = "يضع جزءاً داعماً تحت اللاعب مباشرة",
-		Code = [[local root = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+	local light = root:FindFirstChild("ClassicLight") or Instance.new("PointLight", root)
+	light.Name = "ClassicLight"; light.Range = 16; light.Brightness = 2.5
+end]] },
+	{ Title = "16. إزالة الإضاءة حول اللاعب", Desc = "حذف PointLight من HumanoidRootPart", Code = [[local root = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+if root and root:FindFirstChild("ClassicLight") then root.ClassicLight:Destroy() end]] },
+	{ Title = "17. تكبير مجال الرؤية (FOV 95)", Desc = "رفع FieldOfView للكاميرا إلى 95", Code = [[workspace.CurrentCamera.FieldOfView = 95]] },
+	{ Title = "18. مجال رؤية افتراضي (FOV 70)", Desc = "إعادة FieldOfView إلى 70", Code = [[workspace.CurrentCamera.FieldOfView = 70]] },
+	{ Title = "19. إنشاء منصة تحت قدميك", Desc = "وضع جزء داعم أسفل اللاعب", Code = [[local root = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
 if root then
-	local pad = Instance.new("Part")
-	pad.Size = Vector3.new(10, 1, 10)
-	pad.Anchored = true
-	pad.Color = Color3.fromRGB(0, 162, 255)
-	pad.Material = Enum.Material.SmoothPlastic
-	pad.Position = root.Position - Vector3.new(0, 3.5, 0)
-	pad.Parent = workspace
-end]]
-	},
-	{
-		Title = "14. عرض رسالة تنبيه سريعة",
-		Desc = "ينشئ إشعاراً بسيطاً في أعلى الشاشة",
-		Code = [[local gui = Instance.new("ScreenGui", game.Players.LocalPlayer.PlayerGui)
-local lbl = Instance.new("TextLabel", gui)
-lbl.Size = UDim2.new(0, 260, 0, 42)
-lbl.Position = UDim2.new(0.5, -130, 0.12, 0)
-lbl.BackgroundColor3 = Color3.fromRGB(20, 24, 30)
-lbl.TextColor3 = Color3.fromRGB(255, 255, 255)
-lbl.Text = "تم تنفيذ السكربت بنجاح!"
-lbl.Font = Enum.Font.GothamBold
-lbl.TextSize = 14
-Instance.new("UICorner", lbl).CornerRadius = UDim.new(0, 8)
-task.delay(2.5, function() gui:Destroy() end)]]
-	},
-	{
-		Title = "15. تفعيل الطيران البسيط",
-		Desc = "يضيف BodyVelocity للتحليق للأعلى والانزلاق",
-		Code = [[local root = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+	local part = Instance.new("Part", workspace)
+	part.Size = Vector3.new(10, 1, 10); part.Anchored = true; part.Color = Color3.fromRGB(70, 75, 85)
+	part.Position = root.Position - Vector3.new(0, 3.5, 0)
+end]] },
+	{ Title = "20. إشعار علوي سريع", Desc = "إظهار رسالة صغيرة أعلى الشاشة لثانيتين", Code = [[local sg = Instance.new("ScreenGui", game.Players.LocalPlayer.PlayerGui)
+local lbl = Instance.new("TextLabel", sg)
+lbl.Size = UDim2.new(0, 220, 0, 34); lbl.Position = UDim2.new(0.5, -110, 0.1, 0)
+lbl.BackgroundColor3 = Color3.fromRGB(35, 38, 44); lbl.TextColor3 = Color3.fromRGB(255, 255, 255)
+lbl.Text = "تنفيذ كلاسيكي ناجح"; lbl.Font = Enum.Font.SourceSansBold; lbl.TextSize = 15
+Instance.new("UICorner", lbl).CornerRadius = UDim.new(0, 6)
+task.delay(2, function() sg:Destroy() end)]] },
+	{ Title = "21. دفعة صعود للأعلى", Desc = "إضافة BodyVelocity لرفع اللاعب مؤقتاً", Code = [[local root = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
 if root then
-	local bv = root:FindFirstChild("SimpleFly") or Instance.new("BodyVelocity", root)
-	bv.Name = "SimpleFly"
-	bv.MaxForce = Vector3.new(0, math.huge, 0)
-	bv.Velocity = Vector3.new(0, 22, 0)
-	task.delay(3, function() if bv and bv.Parent then bv:Destroy() end end)
-end]]
-	},
-	{
-		Title = "16. إيقاف الطيران فوراً",
-		Desc = "يزيل قوة الطيران من الشخصية",
-		Code = [[local root = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-local bv = root and root:FindFirstChild("SimpleFly")
-if bv then bv:Destroy() end]]
-	},
-	{
-		Title = "17. طباعة إحداثيات موقعك",
-		Desc = "يطبع موقع HumanoidRootPart في Output",
-		Code = [[local root = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-if root then
-	print("Position:", math.floor(root.Position.X), math.floor(root.Position.Y), math.floor(root.Position.Z))
-end]]
-	},
-	{
-		Title = "18. تفعيل خاصية Noclip مؤقتة",
-		Desc = "يجعل أجزاء الشخصية بدون اصطدام لمدة 5 ثوانٍ",
-		Code = [[local char = game.Players.LocalPlayer.Character
+	local bv = Instance.new("BodyVelocity", root)
+	bv.MaxForce = Vector3.new(0, math.huge, 0); bv.Velocity = Vector3.new(0, 25, 0)
+	task.delay(2.5, function() bv:Destroy() end)
+end]] },
+	{ Title = "22. دفعة للأمام", Desc = "دفع اللاعب للأمام حسب اتجاه النظر", Code = [[local char = game.Players.LocalPlayer.Character
+local root = char and char:FindFirstChild("HumanoidRootPart")
+if root then root.AssemblyLinearVelocity = root.CFrame.LookVector * 70 + Vector3.new(0, 20, 0) end]] },
+	{ Title = "23. طباعة الإحداثيات (X, Y, Z)", Desc = "طباعة موقع اللاعب في نافذة Output", Code = [[local root = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+if root then print(string.format("XYZ: %.1f, %.1f, %.1f", root.Position.X, root.Position.Y, root.Position.Z)) end]] },
+	{ Title = "24. Noclip لمدة 4 ثوانٍ", Desc = "تعطيل التصادم لأجزاء الشخصية مؤقتاً", Code = [[local char = game.Players.LocalPlayer.Character
 if char then
-	for i = 1, 50 do
+	for _ = 1, 40 do
 		for _, p in ipairs(char:GetDescendants()) do
 			if p:IsA("BasePart") then p.CanCollide = false end
 		end
 		task.wait(0.1)
 	end
-end]]
-	},
-	{
-		Title = "19. تغيير لون الإضاءة المحيطة",
-		Desc = "يضبط Ambient بلون أزرق هادئ",
-		Code = [[game:GetService("Lighting").Ambient = Color3.fromRGB(90, 140, 210)]]
-	},
-	{
-		Title = "20. إعادة ضبط الإضاءة والطقس",
-		Desc = "يعيد Ambient والوقت ويزيل الضباب",
-		Code = [[local lighting = game:GetService("Lighting")
-lighting.ClockTime = 14
-lighting.Ambient = Color3.fromRGB(127, 127, 127)
-local atm = lighting:FindFirstChildOfClass("Atmosphere")
-if atm then atm:Destroy() end]]
-	}
+end]] },
+	{ Title = "25. استعادة التصادم (CanCollide)", Desc = "تفعيل التصادم للأجزاء الرئيسية", Code = [[local char = game.Players.LocalPlayer.Character
+if char then
+	for _, p in ipairs(char:GetChildren()) do
+		if p:IsA("BasePart") and p.Name ~= "HumanoidRootPart" then p.CanCollide = true end
+	end
+end]] },
+	{ Title = "26. تغيير لون Ambient", Desc = "تغيير الإضاءة المحيطة إلى أزرق هادئ", Code = [[game:GetService("Lighting").Ambient = Color3.fromRGB(80, 120, 180)]] },
+	{ Title = "27. إعادة ضبط الإضاءة", Desc = "إعادة Ambient والوقت إلى الوضع الافتراضي", Code = [[local l = game:GetService("Lighting")
+l.ClockTime = 14; l.Ambient = Color3.fromRGB(127, 127, 127)]] },
+	{ Title = "28. إخفاء شريط Health الافتراضي", Desc = "إخفاء DisplayDistanceType لـ Humanoid", Code = [[local hum = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+if hum then hum.HealthDisplayType = Enum.HumanoidHealthDisplayType.AlwaysOff end]] },
+	{ Title = "29. إظهار شريط Health الافتراضي", Desc = "إظهار DisplayDistanceType لـ Humanoid", Code = [[local hum = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+if hum then hum.HealthDisplayType = Enum.HumanoidHealthDisplayType.DisplayWhenDamaged end]] },
+	{ Title = "30. تغيير مادة أجزاء اللاعب", Desc = "تعيين مادة SmoothPlastic لأجزاء الجسم", Code = [[local char = game.Players.LocalPlayer.Character
+if char then
+	for _, p in ipairs(char:GetChildren()) do
+		if p:IsA("BasePart") then p.Material = Enum.Material.SmoothPlastic end
+	end
+end]] },
+	{ Title = "31. تغيير مادة أجزاء اللاعب إلى Neon", Desc = "تعيين مادة Neon لأجزاء الجسم", Code = [[local char = game.Players.LocalPlayer.Character
+if char then
+	for _, p in ipairs(char:GetChildren()) do
+		if p:IsA("BasePart") then p.Material = Enum.Material.Neon end
+	end
+end]] },
+	{ Title = "32. إنشاء عمود إرشادي أمامك", Desc = "وضع عمود صغير أمام اللاعب لقياس المسافة", Code = [[local root = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+if root then
+	local pole = Instance.new("Part", workspace)
+	pole.Size = Vector3.new(1, 6, 1); pole.Anchored = true; pole.Color = Color3.fromRGB(0, 120, 215)
+	pole.CFrame = root.CFrame * CFrame.new(0, 0, -8)
+end]] },
+	{ Title = "33. تدوير اللاعب 90 درجة", Desc = "تدوير HumanoidRootPart بمقدار 90 درجة", Code = [[local root = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+if root then root.CFrame = root.CFrame * CFrame.Angles(0, math.rad(90), 0) end]] },
+	{ Title = "34. تدوير اللاعب 180 درجة", Desc = "عكس اتجاه اللاعب بالكامل", Code = [[local root = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+if root then root.CFrame = root.CFrame * CFrame.Angles(0, math.rad(180), 0) end]] },
+	{ Title = "35. تعديل مقياس الشخصية (+15%)", Desc = "زيادة قيم Scale في Humanoid إن وُجدت", Code = [[local hum = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+if hum then
+	for _, v in ipairs(hum:GetChildren()) do
+		if v:IsA("NumberValue") then v.Value = v.Value * 1.15 end
+	end
+end]] },
+	{ Title = "36. زيادة السطوع (Brightness 3)", Desc = "ضبط Brightness في Lighting على 3", Code = [[game:GetService("Lighting").Brightness = 3]] },
+	{ Title = "37. إعادة السطوع (Brightness 1)", Desc = "إعادة Brightness في Lighting إلى 1", Code = [[game:GetService("Lighting").Brightness = 1]] },
+	{ Title = "38. إضافة تعريض لوني (ColorCorrection)", Desc = "إضافة تأثير تباين خفيف للشاشة", Code = [[local l = game:GetService("Lighting")
+local cc = l:FindFirstChildOfClass("ColorCorrectionEffect") or Instance.new("ColorCorrectionEffect", l)
+cc.Contrast = 0.15; cc.Saturation = 0.1]] },
+	{ Title = "39. إزالة تأثير الألوان", Desc = "حذف ColorCorrectionEffect من Lighting", Code = [[local cc = game:GetService("Lighting"):FindFirstChildOfClass("ColorCorrectionEffect")
+if cc then cc:Destroy() end]] },
+	{ Title = "40. تجميد الحركة مؤقتاً (WalkSpeed 0)", Desc = "إيقاف حركة المشي لمدة 3 ثوانٍ", Code = [[local hum = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+if hum then
+	hum.WalkSpeed = 0
+	task.delay(3, function() if hum then hum.WalkSpeed = 16 end end)
+end]] },
+	{ Title = "41. استدعاء HumanoidStateType.Jumping", Desc = "إجبار الشخصية على محاولة القفز", Code = [[local hum = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end]] },
+	{ Title = "42. طباعة أسماء اللاعبين المتصلين", Desc = "عرض أسماء اللاعبين في Output", Code = [[for _, plr in ipairs(game:GetService("Players"):GetPlayers()) do
+	print("Player:", plr.Name)
+end]] },
+	{ Title = "43. طباعة عدد الأجزاء في Workspace", Desc = "حساب عدد BasePart في Workspace", Code = [[local count = 0
+for _, d in ipairs(workspace:GetDescendants()) do
+	if d:IsA("BasePart") then count += 1 end
+end
+print("BaseParts count:", count)]] },
+	{ Title = "44. إنشاء علامة في الموقع الحالي", Desc = "وضع كرة مرجعية في موقعك", Code = [[local root = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+if root then
+	local mark = Instance.new("Part", workspace)
+	mark.Shape = Enum.PartType.Ball; mark.Size = Vector3.new(2, 2, 2); mark.Anchored = true
+	mark.Color = Color3.fromRGB(42, 145, 85); mark.Position = root.Position
+end]] },
+	{ Title = "45. تعديل الجاذبية إلى 120", Desc = "رفع workspace.Gravity إلى 120", Code = [[workspace.Gravity = 120]] },
+	{ Title = "46. إعادة الجاذبية الطبيعية (196.2)", Desc = "إعادة workspace.Gravity إلى القيمة الافتراضية", Code = [[workspace.Gravity = 196.2]] },
+	{ Title = "47. جعل الجاذبية خفيفة (65)", Desc = "تقليل workspace.Gravity للقفز الأطول", Code = [[workspace.Gravity = 65]] },
+	{ Title = "48. فاصل منظم في Output", Desc = "طباعة خط فاصل لتنظيم سجل Output", Code = [[print("========== CLASSIC EXECUTOR LOG ==========")]] },
+	{ Title = "49. فحص حالة الشخصية والـ Humanoid", Desc = "طباعة معلومات مختصرة عن الشخصية الحالية", Code = [[local char = game.Players.LocalPlayer.Character
+local hum = char and char:FindFirstChildOfClass("Humanoid")
+print("Char:", char and char.Name or "None", "Hum:", hum and hum.Health or "N/A")]] },
+	{ Title = "50. إعادة ضبط كاملة للبيئة واللاعب", Desc = "إعادة السرعة، القفز، الكاميرا، الجاذبية، والإضاءة", Code = [[local hum = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+if hum then hum.WalkSpeed = 16; hum.JumpPower = 50 end
+workspace.CurrentCamera.FieldOfView = 70
+workspace.Gravity = 196.2
+local l = game:GetService("Lighting")
+l.ClockTime = 14; l.Brightness = 1; l.Ambient = Color3.fromRGB(127, 127, 127)]] }
 }
 
--- جدول لتخزين السكربتات المحفوظة خلال الجلسة
+-- 3. نظام حفظ محسّن (تثبيت + تحديث بالاسم + آخر مسودة + تصدير/استيراد JSON)
 local SavedScripts = {
 	{
-		Name = "سرعة سريعة (80)",
+		Name = "سرعة كلاسيكية (50)",
+		Pinned = true,
 		Code = [[local hum = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
-if hum then hum.WalkSpeed = 80 end]]
+if hum then hum.WalkSpeed = 50 end]]
 	}
 }
+local LastDraftCode = ""
 
--- 3. إنشاء ScreenGui والحاوية الرئيسية
+local function sortSavedScripts()
+	table.sort(SavedScripts, function(a, b)
+		if a.Pinned ~= b.Pinned then
+			return (a.Pinned == true)
+		end
+		return false
+	end)
+end
+
+local function saveOrUpdateScript(name, code)
+	local cleanName = name and name:match("^%s*(.-)%s*$") or ""
+	if cleanName == "" then
+		cleanName = "سكربت #" .. tostring(#SavedScripts + 1)
+	end
+
+	for _, item in ipairs(SavedScripts) do
+		if item.Name == cleanName then
+			item.Code = code
+			sortSavedScripts()
+			return cleanName, true
+		end
+	end
+
+	table.insert(SavedScripts, {
+		Name = cleanName,
+		Pinned = false,
+		Code = code
+	})
+	sortSavedScripts()
+	return cleanName, false
+end
+
+-- 4. إنشاء ScreenGui والألوان الكلاسيكية الهادئة (بدون RGB)
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "SimpleExecutorGui"
+ScreenGui.Name = "ClassicExecutorGui"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 ScreenGui.Parent = PlayerGui
 
--- ألوان بسيطة وأنيقة (خلفية داكنة شبه شفافة + أزرق روبلوكس + أخضر للتأكيد)
-local Theme = {
-	BgDark = Color3.fromRGB(18, 20, 24),
-	PanelBg = Color3.fromRGB(26, 29, 35),
-	CardBg = Color3.fromRGB(34, 38, 46),
-	Stroke = Color3.fromRGB(60, 66, 78),
-	TextWhite = Color3.fromRGB(245, 247, 250),
-	TextMuted = Color3.fromRGB(165, 173, 185),
-	RobloxBlue = Color3.fromRGB(0, 130, 255),
-	RobloxBlueHover = Color3.fromRGB(25, 150, 255),
-	Green = Color3.fromRGB(46, 160, 92),
-	GreenHover = Color3.fromRGB(60, 180, 108),
-	Danger = Color3.fromRGB(190, 60, 65),
-	DangerHover = Color3.fromRGB(215, 75, 80)
+local ClassicTheme = {
+	Bg = Color3.fromRGB(22, 24, 28),
+	Panel = Color3.fromRGB(30, 33, 38),
+	Item = Color3.fromRGB(38, 42, 48),
+	Border = Color3.fromRGB(64, 70, 80),
+	Text = Color3.fromRGB(238, 240, 244),
+	SubText = Color3.fromRGB(155, 163, 175),
+	Blue = Color3.fromRGB(0, 115, 205),
+	BlueHover = Color3.fromRGB(18, 134, 228),
+	Green = Color3.fromRGB(38, 138, 80),
+	GreenHover = Color3.fromRGB(50, 158, 95),
+	Amber = Color3.fromRGB(165, 120, 35),
+	AmberHover = Color3.fromRGB(188, 138, 42),
+	Red = Color3.fromRGB(170, 52, 58),
+	RedHover = Color3.fromRGB(195, 66, 72)
 }
 
-local function addCorner(inst, radius)
+local function round(obj, r)
 	local c = Instance.new("UICorner")
-	c.CornerRadius = UDim.new(0, radius or 8)
-	c.Parent = inst
-	return c
+	c.CornerRadius = UDim.new(0, r or 5)
+	c.Parent = obj
 end
 
-local function addStroke(inst, color, thickness)
+local function border(obj, col, t)
 	local s = Instance.new("UIStroke")
-	s.Color = color or Theme.Stroke
-	s.Thickness = thickness or 1
+	s.Color = col or ClassicTheme.Border
+	s.Thickness = t or 1
 	s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-	s.Parent = inst
-	return s
+	s.Parent = obj
 end
 
--- 4. زر القائمة الرئيسي (80x80 pixels في أعلى اليسار)
-local ToggleButton = Instance.new("ImageButton")
-ToggleButton.Name = "ToggleButton"
-ToggleButton.Size = UDim2.new(0, 80, 0, 80)
-ToggleButton.Position = UDim2.new(0, 16, 0, 16)
-ToggleButton.BackgroundColor3 = Theme.BgDark
-ToggleButton.BackgroundTransparency = 0.15
-ToggleButton.AutoButtonColor = false
-ToggleButton.Image = ""
-ToggleButton.Parent = ScreenGui
-addCorner(ToggleButton, 16)
-addStroke(ToggleButton, Theme.RobloxBlue, 1.5)
+local function styleBtn(btn, baseCol, hoverCol)
+	btn.BackgroundColor3 = baseCol
+	btn.TextColor3 = ClassicTheme.Text
+	btn.Font = Enum.Font.SourceSansBold
+	btn.TextSize = 13
+	btn.AutoButtonColor = false
+	round(btn, 5)
+	btn.MouseEnter:Connect(function() btn.BackgroundColor3 = hoverCol end)
+	btn.MouseLeave:Connect(function() btn.BackgroundColor3 = baseCol end)
+end
 
--- أيقونة بسيطة تشبه الكود/الترس داخل زر 80x80
-local IconLabel = Instance.new("TextLabel")
-IconLabel.Size = UDim2.new(1, 0, 0.62, 0)
-IconLabel.Position = UDim2.new(0, 0, 0.06, 0)
-IconLabel.BackgroundTransparency = 1
-IconLabel.Text = "</>"
-IconLabel.TextColor3 = Theme.RobloxBlue
-IconLabel.Font = Enum.Font.Code
-IconLabel.TextSize = 26
-IconLabel.Parent = ToggleButton
+-- سحب سلس للهواتف والماوس مع تمييز النقر من السحب
+local function makeDraggable(targetObj, dragHandle, onClickCallback)
+	local dragging = false
+	local moved = false
+	local dragStart = Vector2.new()
+	local startPos = UDim2.new()
 
-local IconCaption = Instance.new("TextLabel")
-IconCaption.Size = UDim2.new(1, 0, 0.28, 0)
-IconCaption.Position = UDim2.new(0, 0, 0.66, 0)
-IconCaption.BackgroundTransparency = 1
-IconCaption.Text = "EXEC"
-IconCaption.TextColor3 = Theme.TextWhite
-IconCaption.Font = Enum.Font.GothamBold
-IconCaption.TextSize = 11
-IconCaption.Parent = ToggleButton
+	dragHandle.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = true
+			moved = false
+			dragStart = Vector2.new(input.Position.X, input.Position.Y)
+			startPos = targetObj.Position
 
--- 5. الإطار الرئيسي والقائمة المنسدلة (متجاوبة مع الهواتف)
+			input.Changed:Connect(function()
+				if input.UserInputState == Enum.UserInputState.End then
+					dragging = false
+					if not moved and onClickCallback then
+						onClickCallback()
+					end
+				end
+			end)
+		end
+	end)
+
+	UserInputService.InputChanged:Connect(function(input)
+		if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+			local delta = Vector2.new(input.Position.X, input.Position.Y) - dragStart
+			if delta.Magnitude > 6 then
+				moved = true
+			end
+			targetObj.Position = UDim2.new(
+				startPos.X.Scale,
+				startPos.X.Offset + delta.X,
+				startPos.Y.Scale,
+				startPos.Y.Offset + delta.Y
+			)
+		end
+	end)
+end
+
+-- 5. زر كلاسيكي صغير (52x52) قابل للسحب والنقر
+local ToggleBtn = Instance.new("TextButton")
+ToggleBtn.Name = "ClassicToggleButton"
+ToggleBtn.Size = UDim2.new(0, 52, 0, 52)
+ToggleBtn.Position = UDim2.new(0, 14, 0, 14)
+ToggleBtn.BackgroundColor3 = ClassicTheme.Bg
+ToggleBtn.BackgroundTransparency = 0.08
+ToggleBtn.Text = ">_"
+ToggleBtn.TextColor3 = ClassicTheme.Blue
+ToggleBtn.Font = Enum.Font.Code
+ToggleBtn.TextSize = 18
+ToggleBtn.AutoButtonColor = false
+ToggleBtn.Parent = ScreenGui
+round(ToggleBtn, 8)
+border(ToggleBtn, ClassicTheme.Blue, 1.2)
+
+-- 6. القائمة الكلاسيكية الرئيسية القابلة للسحب والطي
 local MainFrame = Instance.new("Frame")
-MainFrame.Name = "MainDropdownFrame"
-MainFrame.Size = UDim2.new(0, 460, 0, 340)
-MainFrame.Position = UDim2.new(0, 16, 0, 106)
-MainFrame.BackgroundColor3 = Theme.BgDark
-MainFrame.BackgroundTransparency = 0.08
+MainFrame.Name = "ClassicMainFrame"
+MainFrame.Size = UDim2.new(0, 430, 0, 320)
+MainFrame.Position = UDim2.new(0, 14, 0, 74)
+MainFrame.BackgroundColor3 = ClassicTheme.Bg
+MainFrame.BackgroundTransparency = 0.06
 MainFrame.Visible = false
 MainFrame.ClipsDescendants = true
 MainFrame.Parent = ScreenGui
-addCorner(MainFrame, 14)
-addStroke(MainFrame, Theme.Stroke, 1.2)
+round(MainFrame, 8)
+border(MainFrame, ClassicTheme.Border, 1)
 
--- ملاءمة تلقائية للشاشات الصغيرة (الهواتف)
-local FrameSizeConstraint = Instance.new("UISizeConstraint")
-FrameSizeConstraint.MaxSize = Vector2.new(520, 380)
-FrameSizeConstraint.MinSize = Vector2.new(280, 240)
-FrameSizeConstraint.Parent = MainFrame
+local isCollapsed = false
 
-local function updateResponsiveLayout()
-	local vp = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1280, 720)
-	if vp.X < 600 then
-		MainFrame.Size = UDim2.new(0, math.max(290, vp.X - 32), 0, math.min(340, vp.Y - 125))
-	else
-		MainFrame.Size = UDim2.new(0, 470, 0, 340)
+local function getExpandedSize()
+	local cam = workspace.CurrentCamera
+	local vp = cam and cam.ViewportSize or Vector2.new(1024, 600)
+	if vp.X < 540 then
+		return UDim2.new(0, math.max(280, vp.X - 28), 0, math.min(310, vp.Y - 95))
 	end
-end
-updateResponsiveLayout()
-workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(updateResponsiveLayout)
-
--- شريط العلوي للتبويبات الثلاثة
-local TabBar = Instance.new("Frame")
-TabBar.Name = "TabBar"
-TabBar.Size = UDim2.new(1, -16, 0, 40)
-TabBar.Position = UDim2.new(0, 8, 0, 8)
-TabBar.BackgroundColor3 = Theme.PanelBg
-TabBar.BackgroundTransparency = 0.15
-TabBar.Parent = MainFrame
-addCorner(TabBar, 10)
-
-local TabLayout = Instance.new("UIListLayout")
-TabLayout.FillDirection = Enum.FillDirection.Horizontal
-TabLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-TabLayout.VerticalAlignment = Enum.VerticalAlignment.Center
-TabLayout.Padding = UDim.new(0, 6)
-TabLayout.Parent = TabBar
-
-local function createTabButton(text)
-	local btn = Instance.new("TextButton")
-	btn.Size = UDim2.new(0.32, 0, 0, 30)
-	btn.BackgroundColor3 = Theme.CardBg
-	btn.BackgroundTransparency = 0.2
-	btn.Text = text
-	btn.TextColor3 = Theme.TextMuted
-	btn.Font = Enum.Font.GothamBold
-	btn.TextSize = 12
-	btn.AutoButtonColor = false
-	btn.Parent = TabBar
-	addCorner(btn, 7)
-
-	btn.MouseEnter:Connect(function()
-		if btn.BackgroundColor3 ~= Theme.RobloxBlue then
-			btn.BackgroundColor3 = Theme.RobloxBlueHover
-			btn.TextColor3 = Theme.TextWhite
-		end
-	end)
-	btn.MouseLeave:Connect(function()
-		if btn.BackgroundColor3 == Theme.RobloxBlueHover then
-			btn.BackgroundColor3 = Theme.CardBg
-			btn.TextColor3 = Theme.TextMuted
-		end
-	end)
-	return btn
+	return UDim2.new(0, 430, 0, 320)
 end
 
-local TabExecuteBtn = createTabButton("تشغيل")
-local TabSavedBtn = createTabButton("سكربتات محفوظة")
-local TabLearnBtn = createTabButton("سكربتات تعليمية")
+local function getCollapsedSize()
+	local exp = getExpandedSize()
+	return UDim2.new(0, exp.X.Offset, 0, 40)
+end
 
--- حاوية المحتوى
-local ContentHolder = Instance.new("Frame")
-ContentHolder.Name = "ContentHolder"
-ContentHolder.Size = UDim2.new(1, -16, 1, -58)
-ContentHolder.Position = UDim2.new(0, 8, 0, 52)
-ContentHolder.BackgroundTransparency = 1
-ContentHolder.Parent = MainFrame
+local function syncFrameSize()
+	MainFrame.Size = isCollapsed and getCollapsedSize() or getExpandedSize()
+end
+
+syncFrameSize()
+if workspace.CurrentCamera then
+	workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(syncFrameSize)
+end
+
+-- شريط عنوان كلاسيكي للسحب والطي
+local DragHeader = Instance.new("Frame")
+DragHeader.Size = UDim2.new(1, -12, 0, 28)
+DragHeader.Position = UDim2.new(0, 6, 0, 6)
+DragHeader.BackgroundColor3 = ClassicTheme.Panel
+DragHeader.Parent = MainFrame
+round(DragHeader, 5)
+
+local HeaderTitle = Instance.new("TextLabel")
+HeaderTitle.Size = UDim2.new(1, -44, 1, 0)
+HeaderTitle.Position = UDim2.new(0, 8, 0, 0)
+HeaderTitle.BackgroundTransparency = 1
+HeaderTitle.Text = "Classic Executor  |  اسحب العنوان"
+HeaderTitle.TextColor3 = ClassicTheme.SubText
+HeaderTitle.Font = Enum.Font.SourceSansBold
+HeaderTitle.TextSize = 13
+HeaderTitle.TextXAlignment = Enum.TextXAlignment.Left
+HeaderTitle.TextTruncate = Enum.TextTruncate.AtEnd
+HeaderTitle.Parent = DragHeader
+
+local CollapseBtn = Instance.new("TextButton")
+CollapseBtn.Size = UDim2.new(0, 28, 0, 22)
+CollapseBtn.Position = UDim2.new(1, -32, 0.5, -11)
+CollapseBtn.Text = "_"
+CollapseBtn.Parent = DragHeader
+styleBtn(CollapseBtn, ClassicTheme.Item, ClassicTheme.BlueHover)
+
+makeDraggable(MainFrame, DragHeader, nil)
+
+-- شريط التبويبات الثلاثة
+local TabsRow = Instance.new("Frame")
+TabsRow.Size = UDim2.new(1, -12, 0, 30)
+TabsRow.Position = UDim2.new(0, 6, 0, 38)
+TabsRow.BackgroundTransparency = 1
+TabsRow.Parent = MainFrame
+
+local TabsLayout = Instance.new("UIListLayout")
+TabsLayout.FillDirection = Enum.FillDirection.Horizontal
+TabsLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+TabsLayout.Padding = UDim.new(0, 6)
+TabsLayout.Parent = TabsRow
+
+local function makeTab(label)
+	local b = Instance.new("TextButton")
+	b.Size = UDim2.new(0.32, 0, 1, 0)
+	b.Text = label
+	b.Font = Enum.Font.SourceSansBold
+	b.TextSize = 13
+	b.AutoButtonColor = false
+	b.Parent = TabsRow
+	round(b, 5)
+	return b
+end
+
+local TabExec = makeTab("تشغيل")
+local TabSaved = makeTab("سكربتات محفوظة")
+local TabLearn = makeTab("تعليمي (50)")
+
+local BodyArea = Instance.new("Frame")
+BodyArea.Size = UDim2.new(1, -12, 1, -76)
+BodyArea.Position = UDim2.new(0, 6, 0, 72)
+BodyArea.BackgroundTransparency = 1
+BodyArea.Parent = MainFrame
 
 -- =========================================================
--- القسم الأول: تشغيل (Execute)
+-- القسم الأول: تشغيل
 -- =========================================================
-local ExecutePage = Instance.new("Frame")
-ExecutePage.Name = "ExecutePage"
-ExecutePage.Size = UDim2.new(1, 0, 1, 0)
-ExecutePage.BackgroundTransparency = 1
-ExecutePage.Visible = true
-ExecutePage.Parent = ContentHolder
+local ExecPage = Instance.new("Frame")
+ExecPage.Size = UDim2.new(1, 0, 1, 0)
+ExecPage.BackgroundTransparency = 1
+ExecPage.Parent = BodyArea
 
-local CodeBoxBg = Instance.new("Frame")
-CodeBoxBg.Size = UDim2.new(1, 0, 1, -48)
-CodeBoxBg.Position = UDim2.new(0, 0, 0, 0)
-CodeBoxBg.BackgroundColor3 = Theme.PanelBg
-CodeBoxBg.BackgroundTransparency = 0.1
-CodeBoxBg.Parent = ExecutePage
-addCorner(CodeBoxBg, 10)
-addStroke(CodeBoxBg, Theme.Stroke, 1)
+local InputBoxFrame = Instance.new("Frame")
+InputBoxFrame.Size = UDim2.new(1, 0, 1, -42)
+InputBoxFrame.BackgroundColor3 = ClassicTheme.Panel
+InputBoxFrame.Parent = ExecPage
+round(InputBoxFrame, 6)
+border(InputBoxFrame, ClassicTheme.Border, 1)
 
-local CodeTextBox = Instance.new("TextBox")
-CodeTextBox.Name = "CodeInput"
-CodeTextBox.Size = UDim2.new(1, -16, 1, -12)
-CodeTextBox.Position = UDim2.new(0, 8, 0, 6)
-CodeTextBox.BackgroundTransparency = 1
-CodeTextBox.ClearTextOnFocus = false
-CodeTextBox.MultiLine = true
-CodeTextBox.TextXAlignment = Enum.TextXAlignment.Left
-CodeTextBox.TextYAlignment = Enum.TextYAlignment.Top
-CodeTextBox.TextWrapped = true
-CodeTextBox.Font = Enum.Font.Code
-CodeTextBox.TextSize = 13
-CodeTextBox.TextColor3 = Theme.TextWhite
-CodeTextBox.PlaceholderText = "-- اكتب كود Luau هنا أو ضع رابط HttpGet مثل:\n-- loadstring(game:HttpGet(\"https://example.com/script.lua\"))()"
-CodeTextBox.PlaceholderColor3 = Theme.TextMuted
-CodeTextBox.Text = ""
-CodeTextBox.Parent = CodeBoxBg
+local CodeBox = Instance.new("TextBox")
+CodeBox.Size = UDim2.new(1, -12, 1, -8)
+CodeBox.Position = UDim2.new(0, 6, 0, 4)
+CodeBox.BackgroundTransparency = 1
+CodeBox.ClearTextOnFocus = false
+CodeBox.MultiLine = true
+CodeBox.TextXAlignment = Enum.TextXAlignment.Left
+CodeBox.TextYAlignment = Enum.TextYAlignment.Top
+CodeBox.TextWrapped = true
+CodeBox.Font = Enum.Font.Code
+CodeBox.TextSize = 13
+CodeBox.TextColor3 = ClassicTheme.Text
+CodeBox.PlaceholderText = "-- اكتب الكود هنا أو رابط HttpGet\n-- loadstring(game:HttpGet(\"https://...\"))()"
+CodeBox.PlaceholderColor3 = ClassicTheme.SubText
+CodeBox.Text = ""
+CodeBox.Parent = InputBoxFrame
 
-local StatusLabel = Instance.new("TextLabel")
-StatusLabel.Size = UDim2.new(0.46, 0, 0, 38)
-StatusLabel.Position = UDim2.new(0, 0, 1, -38)
-StatusLabel.BackgroundColor3 = Theme.PanelBg
-StatusLabel.BackgroundTransparency = 0.25
-StatusLabel.Text = "جاهز للتنفيذ"
-StatusLabel.TextColor3 = Theme.TextMuted
-StatusLabel.Font = Enum.Font.Gotham
-StatusLabel.TextSize = 11
-StatusLabel.TextTruncate = Enum.TextTruncate.AtEnd
-StatusLabel.Parent = ExecutePage
-addCorner(StatusLabel, 8)
+CodeBox:GetPropertyChangedSignal("Text"):Connect(function()
+	if CodeBox.Text ~= "" then
+		LastDraftCode = CodeBox.Text
+	end
+end)
 
-local function styleActionButton(btn, baseColor, hoverColor)
-	btn.BackgroundColor3 = baseColor
-	btn.TextColor3 = Theme.TextWhite
-	btn.Font = Enum.Font.GothamBold
-	btn.TextSize = 12
-	btn.AutoButtonColor = false
-	addCorner(btn, 8)
+local StatusLbl = Instance.new("TextLabel")
+StatusLbl.Size = UDim2.new(0.42, 0, 0, 34)
+StatusLbl.Position = UDim2.new(0, 0, 1, -34)
+StatusLbl.BackgroundColor3 = ClassicTheme.Panel
+StatusLbl.Text = "جاهز"
+StatusLbl.TextColor3 = ClassicTheme.SubText
+StatusLbl.Font = Enum.Font.SourceSansBold
+StatusLbl.TextSize = 13
+StatusLbl.TextTruncate = Enum.TextTruncate.AtEnd
+StatusLbl.Parent = ExecPage
+round(StatusLbl, 5)
 
-	btn.MouseEnter:Connect(function()
-		btn.BackgroundColor3 = hoverColor
-	end)
-	btn.MouseLeave:Connect(function()
-		btn.BackgroundColor3 = baseColor
-	end)
-end
-
-local ExecuteBtn = Instance.new("TextButton")
-ExecuteBtn.Name = "ExecuteButton"
-ExecuteBtn.Size = UDim2.new(0.26, -4, 0, 38)
-ExecuteBtn.Position = UDim2.new(0.48, 0, 1, -38)
-ExecuteBtn.Text = "تشغيل"
-ExecuteBtn.Parent = ExecutePage
-styleActionButton(ExecuteBtn, Theme.RobloxBlue, Theme.RobloxBlueHover)
+local RunBtn = Instance.new("TextButton")
+RunBtn.Size = UDim2.new(0.28, -4, 0, 34)
+RunBtn.Position = UDim2.new(0.44, 0, 1, -34)
+RunBtn.Text = "تشغيل"
+RunBtn.Parent = ExecPage
+styleBtn(RunBtn, ClassicTheme.Blue, ClassicTheme.BlueHover)
 
 local ClearBtn = Instance.new("TextButton")
-ClearBtn.Name = "ClearButton"
-ClearBtn.Size = UDim2.new(0.26, -4, 0, 38)
-ClearBtn.Position = UDim2.new(0.74, 4, 1, -38)
+ClearBtn.Size = UDim2.new(0.28, -4, 0, 34)
+ClearBtn.Position = UDim2.new(0.72, 4, 1, -34)
 ClearBtn.Text = "مسح"
-ClearBtn.Parent = ExecutePage
-styleActionButton(ClearBtn, Theme.CardBg, Theme.GreenHover)
+ClearBtn.Parent = ExecPage
+styleBtn(ClearBtn, ClassicTheme.Item, ClassicTheme.GreenHover)
 
--- منطق التنفيذ المرتبط بالبيئة المحلية (game)
-local function runUserCode(sourceCode)
-	if not sourceCode or sourceCode:match("^%s*$") then
-		StatusLabel.Text = "الحقل فارغ"
-		StatusLabel.TextColor3 = Theme.TextMuted
+local function executeLuau(src)
+	if not src or src:match("^%s*$") then
+		StatusLbl.Text = "الحقل فارغ"
+		StatusLbl.TextColor3 = ClassicTheme.SubText
 		return
 	end
 
-	-- دعم صريح في حال كتب المستخدم رابط HttpGet مباشرة أو كود Luau كامل
-	local finalCode = sourceCode
-	local trimmed = sourceCode:match("^%s*(.-)%s*$")
-	if trimmed:match("^https?://") then
-		finalCode = string.format('loadstring(game:HttpGet(%q))()', trimmed)
-	end
+	local trimmed = src:match("^%s*(.-)%s*$")
+	local codeToRun = trimmed:match("^https?://") and string.format('loadstring(game:HttpGet(%q))()', trimmed) or src
 
-	-- محاولة استدعاء loadstring إن كانت مفعلة في البيئة
 	local loader = loadstring
 	if not loader then
-		StatusLabel.Text = "loadstring غير مفعّل في اللعبة"
-		StatusLabel.TextColor3 = Theme.DangerHover
-		warn("[Executor] loadstring غير متاح على العميل في هذه التجربة. فعّل LoadStringEnabled في ServerScriptService للتنفيذ الديناميكي.")
+		StatusLbl.Text = "loadstring غير مفعّل"
+		StatusLbl.TextColor3 = ClassicTheme.RedHover
+		warn("[Classic Executor] فعّل LoadStringEnabled في ServerScriptService لتشغيل loadstring.")
 		return
 	end
 
-	local fn, compileErr = loader(finalCode)
-	if not fn then
-		StatusLabel.Text = "خطأ في صياغة الكود"
-		StatusLabel.TextColor3 = Theme.DangerHover
-		warn("[Executor Syntax Error]:", compileErr)
+	local compiled, syntaxErr = loader(codeToRun)
+	if not compiled then
+		StatusLbl.Text = "خطأ في صياغة الكود"
+		StatusLbl.TextColor3 = ClassicTheme.RedHover
+		warn("[Classic Executor Syntax]:", syntaxErr)
 		return
 	end
 
-	-- ربط الكود ببيئة اللعبة الحالية (game)
 	local env = setmetatable({
 		game = game,
 		workspace = workspace,
@@ -515,305 +539,437 @@ local function runUserCode(sourceCode)
 	}, { __index = getfenv and getfenv(0) or _G })
 
 	if setfenv then
-		pcall(setfenv, fn, env)
+		pcall(setfenv, compiled, env)
 	end
 
-	local ok, runErr = pcall(function()
-		return fn()
-	end)
-
+	local ok, runtimeErr = pcall(compiled)
 	if ok then
-		StatusLabel.Text = "تم التشغيل بنجاح ✓"
-		StatusLabel.TextColor3 = Theme.GreenHover
+		StatusLbl.Text = "تم التشغيل بنجاح"
+		StatusLbl.TextColor3 = ClassicTheme.GreenHover
 	else
-		StatusLabel.Text = "حدث خطأ أثناء التشغيل"
-		StatusLabel.TextColor3 = Theme.DangerHover
-		warn("[Executor Runtime Error]:", runErr)
+		StatusLbl.Text = "خطأ أثناء التشغيل"
+		StatusLbl.TextColor3 = ClassicTheme.RedHover
+		warn("[Classic Executor Runtime]:", runtimeErr)
 	end
 end
 
-ExecuteBtn.MouseButton1Click:Connect(function()
-	runUserCode(CodeTextBox.Text)
+RunBtn.MouseButton1Click:Connect(function()
+	executeLuau(CodeBox.Text)
 end)
 
 ClearBtn.MouseButton1Click:Connect(function()
-	CodeTextBox.Text = ""
-	StatusLabel.Text = "تم مسح الحقل"
-	StatusLabel.TextColor3 = Theme.TextMuted
+	CodeBox.Text = ""
+	StatusLbl.Text = "تم المسح"
+	StatusLbl.TextColor3 = ClassicTheme.SubText
 end)
 
 -- =========================================================
--- القسم الثاني: سكربتات محفوظة (Saved Scripts)
+-- القسم الثاني: سكربتات محفوظة (نظام حفظ محسّن)
 -- =========================================================
 local SavedPage = Instance.new("Frame")
-SavedPage.Name = "SavedPage"
 SavedPage.Size = UDim2.new(1, 0, 1, 0)
 SavedPage.BackgroundTransparency = 1
 SavedPage.Visible = false
-SavedPage.Parent = ContentHolder
+SavedPage.Parent = BodyArea
 
-local SaveTopBar = Instance.new("Frame")
-SaveTopBar.Size = UDim2.new(1, 0, 0, 38)
-SaveTopBar.Position = UDim2.new(0, 0, 0, 0)
-SaveTopBar.BackgroundTransparency = 1
-SaveTopBar.Parent = SavedPage
+local SaveBar = Instance.new("Frame")
+SaveBar.Size = UDim2.new(1, 0, 0, 30)
+SaveBar.BackgroundTransparency = 1
+SaveBar.Parent = SavedPage
 
-local ScriptNameInput = Instance.new("TextBox")
-ScriptNameInput.Size = UDim2.new(0.68, -6, 1, 0)
-ScriptNameInput.Position = UDim2.new(0, 0, 0, 0)
-ScriptNameInput.BackgroundColor3 = Theme.PanelBg
-ScriptNameInput.TextColor3 = Theme.TextWhite
-ScriptNameInput.PlaceholderText = "اسم السكربت المراد حفظه..."
-ScriptNameInput.PlaceholderColor3 = Theme.TextMuted
-ScriptNameInput.Font = Enum.Font.Gotham
-ScriptNameInput.TextSize = 12
-ScriptNameInput.ClearTextOnFocus = false
-ScriptNameInput.Text = ""
-ScriptNameInput.Parent = SaveTopBar
-addCorner(ScriptNameInput, 8)
-addStroke(ScriptNameInput, Theme.Stroke, 1)
+local SaveNameBox = Instance.new("TextBox")
+SaveNameBox.Size = UDim2.new(0.48, -4, 1, 0)
+SaveNameBox.BackgroundColor3 = ClassicTheme.Panel
+SaveNameBox.TextColor3 = ClassicTheme.Text
+SaveNameBox.PlaceholderText = "اسم السكربت..."
+SaveNameBox.PlaceholderColor3 = ClassicTheme.SubText
+SaveNameBox.Font = Enum.Font.SourceSans
+SaveNameBox.TextSize = 13
+SaveNameBox.ClearTextOnFocus = false
+SaveNameBox.Text = ""
+SaveNameBox.Parent = SaveBar
+round(SaveNameBox, 5)
+border(SaveNameBox, ClassicTheme.Border, 1)
 
-local SaveCurrentBtn = Instance.new("TextButton")
-SaveCurrentBtn.Size = UDim2.new(0.32, 0, 1, 0)
-SaveCurrentBtn.Position = UDim2.new(0.68, 0, 0, 0)
-SaveCurrentBtn.Text = "حفظ"
-SaveCurrentBtn.Parent = SaveTopBar
-styleActionButton(SaveCurrentBtn, Theme.Green, Theme.GreenHover)
+local SaveBtn = Instance.new("TextButton")
+SaveBtn.Size = UDim2.new(0.17, -3, 1, 0)
+SaveBtn.Position = UDim2.new(0.48, 2, 0, 0)
+SaveBtn.Text = "حفظ"
+SaveBtn.Parent = SaveBar
+styleBtn(SaveBtn, ClassicTheme.Green, ClassicTheme.GreenHover)
 
-local SavedList = Instance.new("ScrollingFrame")
-SavedList.Size = UDim2.new(1, 0, 1, -46)
-SavedList.Position = UDim2.new(0, 0, 0, 46)
-SavedList.BackgroundColor3 = Theme.PanelBg
-SavedList.BackgroundTransparency = 0.2
-SavedList.ScrollBarThickness = 5
-SavedList.CanvasSize = UDim2.new(0, 0, 0, 0)
-SavedList.Parent = SavedPage
-addCorner(SavedList, 10)
+local RestoreBtn = Instance.new("TextButton")
+RestoreBtn.Size = UDim2.new(0.17, -3, 1, 0)
+RestoreBtn.Position = UDim2.new(0.65, 2, 0, 0)
+RestoreBtn.Text = "مسودة"
+RestoreBtn.Parent = SaveBar
+styleBtn(RestoreBtn, ClassicTheme.Item, ClassicTheme.BlueHover)
 
-local SavedListLayout = Instance.new("UIListLayout")
-SavedListLayout.Padding = UDim.new(0, 6)
-SavedListLayout.Parent = SavedList
+local JsonBtn = Instance.new("TextButton")
+JsonBtn.Size = UDim2.new(0.18, 0, 1, 0)
+JsonBtn.Position = UDim2.new(0.82, 0, 0, 0)
+JsonBtn.Text = "JSON"
+JsonBtn.Parent = SaveBar
+styleBtn(JsonBtn, ClassicTheme.Amber, ClassicTheme.AmberHover)
 
-local function refreshSavedList()
-	for _, child in ipairs(SavedList:GetChildren()) do
+-- صندوق JSON اختياري لتصدير أو استيراد السكربتات المحفوظة
+local JsonBox = Instance.new("TextBox")
+JsonBox.Size = UDim2.new(1, 0, 0, 56)
+JsonBox.Position = UDim2.new(0, 0, 0, 34)
+JsonBox.BackgroundColor3 = ClassicTheme.Panel
+JsonBox.TextColor3 = ClassicTheme.Text
+JsonBox.PlaceholderText = "اضغط JSON لتصدير الكل أو الصق JSON هنا ثم اضغط حفظ..."
+JsonBox.PlaceholderColor3 = ClassicTheme.SubText
+JsonBox.Font = Enum.Font.Code
+JsonBox.TextSize = 11
+JsonBox.MultiLine = true
+JsonBox.TextWrapped = true
+JsonBox.ClearTextOnFocus = false
+JsonBox.Visible = false
+JsonBox.Text = ""
+JsonBox.Parent = SavedPage
+round(JsonBox, 5)
+border(JsonBox, ClassicTheme.Amber, 1)
+
+local SavedScroll = Instance.new("ScrollingFrame")
+SavedScroll.Size = UDim2.new(1, 0, 1, -36)
+SavedScroll.Position = UDim2.new(0, 0, 0, 36)
+SavedScroll.BackgroundColor3 = ClassicTheme.Panel
+SavedScroll.BackgroundTransparency = 0.15
+SavedScroll.ScrollBarThickness = 4
+SavedScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+SavedScroll.Parent = SavedPage
+round(SavedScroll, 6)
+
+local SavedLayout = Instance.new("UIListLayout")
+SavedLayout.Padding = UDim.new(0, 5)
+SavedLayout.Parent = SavedScroll
+
+local function rebuildSavedList()
+	sortSavedScripts()
+	for _, child in ipairs(SavedScroll:GetChildren()) do
 		if child:IsA("Frame") then
 			child:Destroy()
 		end
 	end
 
-	for index, item in ipairs(SavedScripts) do
+	for idx, entry in ipairs(SavedScripts) do
 		local row = Instance.new("Frame")
-		row.Size = UDim2.new(1, -12, 0, 42)
-		row.Position = UDim2.new(0, 6, 0, 0)
-		row.BackgroundColor3 = Theme.CardBg
-		row.Parent = SavedList
-		addCorner(row, 8)
+		row.Size = UDim2.new(1, -10, 0, 38)
+		row.Position = UDim2.new(0, 5, 0, 0)
+		row.BackgroundColor3 = ClassicTheme.Item
+		row.Parent = SavedScroll
+		round(row, 5)
 
-		local titleLbl = Instance.new("TextLabel")
-		titleLbl.Size = UDim2.new(0.54, -8, 1, 0)
-		titleLbl.Position = UDim2.new(0, 10, 0, 0)
-		titleLbl.BackgroundTransparency = 1
-		titleLbl.Text = item.Name
-		titleLbl.TextColor3 = Theme.TextWhite
-		titleLbl.Font = Enum.Font.GothamBold
-		titleLbl.TextSize = 12
-		titleLbl.TextXAlignment = Enum.TextXAlignment.Left
-		titleLbl.TextTruncate = Enum.TextTruncate.AtEnd
-		titleLbl.Parent = row
+		local pinPrefix = entry.Pinned and "[مثبّت] " or ""
+		local nameLbl = Instance.new("TextLabel")
+		nameLbl.Size = UDim2.new(0.40, -6, 1, 0)
+		nameLbl.Position = UDim2.new(0, 8, 0, 0)
+		nameLbl.BackgroundTransparency = 1
+		nameLbl.Text = pinPrefix .. entry.Name
+		nameLbl.TextColor3 = ClassicTheme.Text
+		nameLbl.Font = Enum.Font.SourceSansBold
+		nameLbl.TextSize = 13
+		nameLbl.TextXAlignment = Enum.TextXAlignment.Left
+		nameLbl.TextTruncate = Enum.TextTruncate.AtEnd
+		nameLbl.Parent = row
+
+		local pinBtn = Instance.new("TextButton")
+		pinBtn.Size = UDim2.new(0.14, -3, 0, 26)
+		pinBtn.Position = UDim2.new(0.40, 0, 0.5, -13)
+		pinBtn.Text = entry.Pinned and "فك" or "تثبيت"
+		pinBtn.Parent = row
+		styleBtn(pinBtn, ClassicTheme.Amber, ClassicTheme.AmberHover)
 
 		local loadBtn = Instance.new("TextButton")
-		loadBtn.Size = UDim2.new(0.22, -4, 0, 28)
-		loadBtn.Position = UDim2.new(0.54, 0, 0.5, -14)
+		loadBtn.Size = UDim2.new(0.15, -3, 0, 26)
+		loadBtn.Position = UDim2.new(0.54, 2, 0.5, -13)
 		loadBtn.Text = "تحميل"
 		loadBtn.Parent = row
-		styleActionButton(loadBtn, Theme.RobloxBlue, Theme.RobloxBlueHover)
+		styleBtn(loadBtn, ClassicTheme.Blue, ClassicTheme.BlueHover)
+
+		local execItemBtn = Instance.new("TextButton")
+		execItemBtn.Size = UDim2.new(0.15, -3, 0, 26)
+		execItemBtn.Position = UDim2.new(0.69, 2, 0.5, -13)
+		execItemBtn.Text = "تشغيل"
+		execItemBtn.Parent = row
+		styleBtn(execItemBtn, ClassicTheme.Green, ClassicTheme.GreenHover)
 
 		local delBtn = Instance.new("TextButton")
-		delBtn.Size = UDim2.new(0.22, -4, 0, 28)
-		delBtn.Position = UDim2.new(0.77, 0, 0.5, -14)
+		delBtn.Size = UDim2.new(0.15, -2, 0, 26)
+		delBtn.Position = UDim2.new(0.84, 2, 0.5, -13)
 		delBtn.Text = "حذف"
 		delBtn.Parent = row
-		styleActionButton(delBtn, Theme.Danger, Theme.DangerHover)
+		styleBtn(delBtn, ClassicTheme.Red, ClassicTheme.RedHover)
+
+		pinBtn.MouseButton1Click:Connect(function()
+			entry.Pinned = not entry.Pinned
+			rebuildSavedList()
+		end)
 
 		loadBtn.MouseButton1Click:Connect(function()
-			CodeTextBox.Text = item.Code
-			StatusLabel.Text = "تم تحميل: " .. item.Name
-			StatusLabel.TextColor3 = Theme.RobloxBlueHover
-			-- الانتقال تلقائياً لتبويب التشغيل
-			ExecutePage.Visible = true
-			SavedPage.Visible = false
-			LearnPage.Visible = false
+			CodeBox.Text = entry.Code
+			StatusLbl.Text = "تم تحميل: " .. entry.Name
+			StatusLbl.TextColor3 = ClassicTheme.BlueHover
+		end)
+
+		execItemBtn.MouseButton1Click:Connect(function()
+			CodeBox.Text = entry.Code
+			executeLuau(entry.Code)
 		end)
 
 		delBtn.MouseButton1Click:Connect(function()
-			table.remove(SavedScripts, index)
-			refreshSavedList()
+			table.remove(SavedScripts, idx)
+			rebuildSavedList()
 		end)
 	end
 
 	task.defer(function()
-		SavedList.CanvasSize = UDim2.new(0, 0, 0, SavedListLayout.AbsoluteContentSize.Y + 12)
+		SavedScroll.CanvasSize = UDim2.new(0, 0, 0, SavedLayout.AbsoluteContentSize.Y + 10)
 	end)
 end
 
-SaveCurrentBtn.MouseButton1Click:Connect(function()
-	local codeToSave = CodeTextBox.Text
-	if not codeToSave or codeToSave:match("^%s*$") then
-		StatusLabel.Text = "لا يوجد كود لحفظه"
-		StatusLabel.TextColor3 = Theme.DangerHover
+SaveBtn.MouseButton1Click:Connect(function()
+	-- استيراد تلقائي إذا كان المستخدم قد لصق JSON في صندوق JSON المفتوح
+	if JsonBox.Visible and not JsonBox.Text:match("^%s*$") then
+		local okDecode, decoded = pcall(function()
+			return HttpService:JSONDecode(JsonBox.Text)
+		end)
+		if okDecode and type(decoded) == "table" then
+			local importedCount = 0
+			for _, row in ipairs(decoded) do
+				if type(row) == "table" and type(row.Name) == "string" and type(row.Code) == "string" then
+					saveOrUpdateScript(row.Name, row.Code)
+					importedCount += 1
+				end
+			end
+			if importedCount > 0 then
+				JsonBox.Text = ""
+				JsonBox.Visible = false
+				SavedScroll.Size = UDim2.new(1, 0, 1, -36)
+				SavedScroll.Position = UDim2.new(0, 0, 0, 36)
+				rebuildSavedList()
+				StatusLbl.Text = "تم استيراد " .. tostring(importedCount) .. " سكربت"
+				StatusLbl.TextColor3 = ClassicTheme.GreenHover
+				return
+			end
+		end
+	end
+
+	local codeVal = CodeBox.Text
+	if not codeVal or codeVal:match("^%s*$") then
+		StatusLbl.Text = "لا يوجد كود لحفظه"
+		StatusLbl.TextColor3 = ClassicTheme.RedHover
 		return
 	end
 
-	local chosenName = ScriptNameInput.Text
-	if not chosenName or chosenName:match("^%s*$") then
-		chosenName = "سكربت محفوظ #" .. tostring(#SavedScripts + 1)
-	end
+	local finalName, replaced = saveOrUpdateScript(SaveNameBox.Text, codeVal)
+	SaveNameBox.Text = ""
+	rebuildSavedList()
+	StatusLbl.Text = replaced and ("تم تحديث: " .. finalName) or ("تم حفظ: " .. finalName)
+	StatusLbl.TextColor3 = ClassicTheme.GreenHover
+end)
 
-	table.insert(SavedScripts, 1, {
-		Name = chosenName,
-		Code = codeToSave
-	})
-	ScriptNameInput.Text = ""
-	refreshSavedList()
-	StatusLabel.Text = "تم حفظ: " .. chosenName
-	StatusLabel.TextColor3 = Theme.GreenHover
+RestoreBtn.MouseButton1Click:Connect(function()
+	if LastDraftCode ~= "" then
+		CodeBox.Text = LastDraftCode
+		StatusLbl.Text = "تم استرجاع آخر مسودة"
+		StatusLbl.TextColor3 = ClassicTheme.BlueHover
+	else
+		StatusLbl.Text = "لا توجد مسودة سابقة"
+		StatusLbl.TextColor3 = ClassicTheme.SubText
+	end
+end)
+
+JsonBtn.MouseButton1Click:Connect(function()
+	JsonBox.Visible = not JsonBox.Visible
+	if JsonBox.Visible then
+		JsonBox.Text = HttpService:JSONEncode(SavedScripts)
+		SavedScroll.Size = UDim2.new(1, 0, 1, -96)
+		SavedScroll.Position = UDim2.new(0, 0, 0, 96)
+		StatusLbl.Text = "تم توليد JSON للتصدير أو اللصق"
+		StatusLbl.TextColor3 = ClassicTheme.AmberHover
+	else
+		SavedScroll.Size = UDim2.new(1, 0, 1, -36)
+		SavedScroll.Position = UDim2.new(0, 0, 0, 36)
+		StatusLbl.Text = "جاهز"
+		StatusLbl.TextColor3 = ClassicTheme.SubText
+	end
 end)
 
 -- =========================================================
--- القسم الثالث: سكربتات تعليمية (Learn Scripts - 20 سكربتاً)
+-- القسم الثالث: سكربتات تعليمية (50 سكربتاً + بحث فوري)
 -- =========================================================
 local LearnPage = Instance.new("Frame")
-LearnPage.Name = "LearnPage"
 LearnPage.Size = UDim2.new(1, 0, 1, 0)
 LearnPage.BackgroundTransparency = 1
 LearnPage.Visible = false
-LearnPage.Parent = ContentHolder
+LearnPage.Parent = BodyArea
 
-local LearnList = Instance.new("ScrollingFrame")
-LearnList.Size = UDim2.new(1, 0, 1, 0)
-LearnList.BackgroundColor3 = Theme.PanelBg
-LearnList.BackgroundTransparency = 0.2
-LearnList.ScrollBarThickness = 5
-LearnList.CanvasSize = UDim2.new(0, 0, 0, 0)
-LearnList.Parent = LearnPage
-addCorner(LearnList, 10)
+local SearchBox = Instance.new("TextBox")
+SearchBox.Size = UDim2.new(1, 0, 0, 28)
+SearchBox.BackgroundColor3 = ClassicTheme.Panel
+SearchBox.TextColor3 = ClassicTheme.Text
+SearchBox.PlaceholderText = "ابحث في الـ 50 سكربت التعليمي..."
+SearchBox.PlaceholderColor3 = ClassicTheme.SubText
+SearchBox.Font = Enum.Font.SourceSans
+SearchBox.TextSize = 13
+SearchBox.ClearTextOnFocus = false
+SearchBox.Text = ""
+SearchBox.Parent = LearnPage
+round(SearchBox, 5)
+border(SearchBox, ClassicTheme.Border, 1)
 
-local LearnListLayout = Instance.new("UIListLayout")
-LearnListLayout.Padding = UDim.new(0, 6)
-LearnListLayout.Parent = LearnList
+local LearnScroll = Instance.new("ScrollingFrame")
+LearnScroll.Size = UDim2.new(1, 0, 1, -34)
+LearnScroll.Position = UDim2.new(0, 0, 0, 34)
+LearnScroll.BackgroundColor3 = ClassicTheme.Panel
+LearnScroll.BackgroundTransparency = 0.15
+LearnScroll.ScrollBarThickness = 4
+LearnScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+LearnScroll.Parent = LearnPage
+round(LearnScroll, 6)
 
-for _, entry in ipairs(LearnScripts) do
-	local card = Instance.new("Frame")
-	card.Size = UDim2.new(1, -12, 0, 48)
-	card.Position = UDim2.new(0, 6, 0, 0)
-	card.BackgroundColor3 = Theme.CardBg
-	card.Parent = LearnList
-	addCorner(card, 8)
+local LearnLayout = Instance.new("UIListLayout")
+LearnLayout.Padding = UDim.new(0, 5)
+LearnLayout.Parent = LearnScroll
 
-	local titleLbl = Instance.new("TextLabel")
-	titleLbl.Size = UDim2.new(0.74, -10, 0, 22)
-	titleLbl.Position = UDim2.new(0, 10, 0, 4)
-	titleLbl.BackgroundTransparency = 1
-	titleLbl.Text = entry.Title
-	titleLbl.TextColor3 = Theme.TextWhite
-	titleLbl.Font = Enum.Font.GothamBold
-	titleLbl.TextSize = 12
-	titleLbl.TextXAlignment = Enum.TextXAlignment.Left
-	titleLbl.TextTruncate = Enum.TextTruncate.AtEnd
-	titleLbl.Parent = card
+local function rebuildLearnList(filterText)
+	local query = filterText and filterText:lower():match("^%s*(.-)%s*$") or ""
+	for _, child in ipairs(LearnScroll:GetChildren()) do
+		if child:IsA("Frame") then
+			child:Destroy()
+		end
+	end
 
-	local descLbl = Instance.new("TextLabel")
-	descLbl.Size = UDim2.new(0.74, -10, 0, 18)
-	descLbl.Position = UDim2.new(0, 10, 0, 25)
-	descLbl.BackgroundTransparency = 1
-	descLbl.Text = entry.Desc
-	descLbl.TextColor3 = Theme.TextMuted
-	descLbl.Font = Enum.Font.Gotham
-	descLbl.TextSize = 10
-	descLbl.TextXAlignment = Enum.TextXAlignment.Left
-	descLbl.TextTruncate = Enum.TextTruncate.AtEnd
-	descLbl.Parent = card
+	for _, item in ipairs(LearnScripts) do
+		local matches = (query == "")
+			or item.Title:lower():find(query, 1, true) ~= nil
+			or item.Desc:lower():find(query, 1, true) ~= nil
 
-	local copyBtn = Instance.new("TextButton")
-	copyBtn.Size = UDim2.new(0.22, -4, 0, 30)
-	copyBtn.Position = UDim2.new(0.76, 0, 0.5, -15)
-	copyBtn.Text = "نسخ"
-	copyBtn.Parent = card
-	styleActionButton(copyBtn, Theme.RobloxBlue, Theme.GreenHover)
+		if matches then
+			local card = Instance.new("Frame")
+			card.Size = UDim2.new(1, -10, 0, 44)
+			card.Position = UDim2.new(0, 5, 0, 0)
+			card.BackgroundColor3 = ClassicTheme.Item
+			card.Parent = LearnScroll
+			round(card, 5)
 
-	copyBtn.MouseButton1Click:Connect(function()
-		CodeTextBox.Text = entry.Code
-		StatusLabel.Text = "تم نسخ السكربت التعليمي إلى حقل التشغيل"
-		StatusLabel.TextColor3 = Theme.GreenHover
-		ExecutePage.Visible = true
-		SavedPage.Visible = false
-		LearnPage.Visible = false
+			local tLbl = Instance.new("TextLabel")
+			tLbl.Size = UDim2.new(0.62, -8, 0, 20)
+			tLbl.Position = UDim2.new(0, 8, 0, 3)
+			tLbl.BackgroundTransparency = 1
+			tLbl.Text = item.Title
+			tLbl.TextColor3 = ClassicTheme.Text
+			tLbl.Font = Enum.Font.SourceSansBold
+			tLbl.TextSize = 13
+			tLbl.TextXAlignment = Enum.TextXAlignment.Left
+			tLbl.TextTruncate = Enum.TextTruncate.AtEnd
+			tLbl.Parent = card
+
+			local dLbl = Instance.new("TextLabel")
+			dLbl.Size = UDim2.new(0.62, -8, 0, 16)
+			dLbl.Position = UDim2.new(0, 8, 0, 23)
+			dLbl.BackgroundTransparency = 1
+			dLbl.Text = item.Desc
+			dLbl.TextColor3 = ClassicTheme.SubText
+			dLbl.Font = Enum.Font.SourceSans
+			dLbl.TextSize = 11
+			dLbl.TextXAlignment = Enum.TextXAlignment.Left
+			dLbl.TextTruncate = Enum.TextTruncate.AtEnd
+			dLbl.Parent = card
+
+			local copyBtn = Instance.new("TextButton")
+			copyBtn.Size = UDim2.new(0.17, -3, 0, 28)
+			copyBtn.Position = UDim2.new(0.63, 0, 0.5, -14)
+			copyBtn.Text = "نسخ"
+			copyBtn.Parent = card
+			styleBtn(copyBtn, ClassicTheme.Blue, ClassicTheme.BlueHover)
+
+			local runLearnBtn = Instance.new("TextButton")
+			runLearnBtn.Size = UDim2.new(0.18, -2, 0, 28)
+			runLearnBtn.Position = UDim2.new(0.81, 0, 0.5, -14)
+			runLearnBtn.Text = "تشغيل"
+			runLearnBtn.Parent = card
+			styleBtn(runLearnBtn, ClassicTheme.Green, ClassicTheme.GreenHover)
+
+			copyBtn.MouseButton1Click:Connect(function()
+				CodeBox.Text = item.Code
+				StatusLbl.Text = "تم نسخ: " .. item.Title
+				StatusLbl.TextColor3 = ClassicTheme.BlueHover
+			end)
+
+			runLearnBtn.MouseButton1Click:Connect(function()
+				CodeBox.Text = item.Code
+				executeLuau(item.Code)
+			end)
+		end
+	end
+
+	task.defer(function()
+		LearnScroll.CanvasSize = UDim2.new(0, 0, 0, LearnLayout.AbsoluteContentSize.Y + 10)
 	end)
 end
 
-task.defer(function()
-	LearnList.CanvasSize = UDim2.new(0, 0, 0, LearnListLayout.AbsoluteContentSize.Y + 12)
+SearchBox:GetPropertyChangedSignal("Text"):Connect(function()
+	rebuildLearnList(SearchBox.Text)
 end)
 
--- 6. التحكم في التبويبات وفتح/إغلاق القائمة المنسدلة بسلاسة
-local function setActiveTab(activeBtn, targetPage)
-	local tabs = {
-		{ btn = TabExecuteBtn, page = ExecutePage },
-		{ btn = TabSavedBtn, page = SavedPage },
-		{ btn = TabLearnBtn, page = LearnPage }
+-- 7. التبديل بين التبويبات والطي والفتح مع السحب
+local function selectTab(activeBtn, page)
+	local map = {
+		{ btn = TabExec, p = ExecPage },
+		{ btn = TabSaved, p = SavedPage },
+		{ btn = TabLearn, p = LearnPage }
 	}
-	for _, t in ipairs(tabs) do
-		local isSelected = (t.btn == activeBtn)
-		t.page.Visible = isSelected
-		t.btn.BackgroundColor3 = isSelected and Theme.RobloxBlue or Theme.CardBg
-		t.btn.TextColor3 = isSelected and Theme.TextWhite or Theme.TextMuted
+	for _, entry in ipairs(map) do
+		local selected = (entry.btn == activeBtn)
+		entry.p.Visible = selected
+		entry.btn.BackgroundColor3 = selected and ClassicTheme.Blue or ClassicTheme.Item
+		entry.btn.TextColor3 = selected and ClassicTheme.Text or ClassicTheme.SubText
 	end
 end
 
-setActiveTab(TabExecuteBtn, ExecutePage)
-refreshSavedList()
+selectTab(TabExec, ExecPage)
+rebuildSavedList()
+rebuildLearnList("")
 
-TabExecuteBtn.MouseButton1Click:Connect(function()
-	setActiveTab(TabExecuteBtn, ExecutePage)
-end)
+TabExec.MouseButton1Click:Connect(function() selectTab(TabExec, ExecPage) end)
+TabSaved.MouseButton1Click:Connect(function() selectTab(TabSaved, SavedPage) end)
+TabLearn.MouseButton1Click:Connect(function() selectTab(TabLearn, LearnPage) end)
 
-TabSavedBtn.MouseButton1Click:Connect(function()
-	setActiveTab(TabSavedBtn, SavedPage)
-end)
-
-TabLearnBtn.MouseButton1Click:Connect(function()
-	setActiveTab(TabLearnBtn, LearnPage)
+CollapseBtn.MouseButton1Click:Connect(function()
+	isCollapsed = not isCollapsed
+	CollapseBtn.Text = isCollapsed and "+" or "_"
+	local nextSize = isCollapsed and getCollapsedSize() or getExpandedSize()
+	TweenService:Create(MainFrame, TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		Size = nextSize
+	}):Play()
 end)
 
 local isOpen = false
-local targetFullSize = MainFrame.Size
-
-ToggleButton.MouseButton1Click:Connect(function()
-	updateResponsiveLayout()
-	targetFullSize = MainFrame.Size
+local function toggleMenu()
 	isOpen = not isOpen
+	local fullSize = isCollapsed and getCollapsedSize() or getExpandedSize()
 
 	if isOpen then
-		MainFrame.Size = UDim2.new(0, targetFullSize.X.Offset, 0, 0)
+		MainFrame.Size = UDim2.new(0, fullSize.X.Offset, 0, 0)
 		MainFrame.Visible = true
-		local openTween = TweenService:Create(
-			MainFrame,
-			TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-			{ Size = targetFullSize }
-		)
-		openTween:Play()
+		TweenService:Create(MainFrame, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			Size = fullSize
+		}):Play()
 	else
-		local closeTween = TweenService:Create(
-			MainFrame,
-			TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
-			{ Size = UDim2.new(0, targetFullSize.X.Offset, 0, 0) }
-		)
-		closeTween:Play()
-		closeTween.Completed:Connect(function()
+		local closeTw = TweenService:Create(MainFrame, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+			Size = UDim2.new(0, fullSize.X.Offset, 0, 0)
+		})
+		closeTw:Play()
+		closeTw.Completed:Connect(function()
 			if not isOpen then
 				MainFrame.Visible = false
-				MainFrame.Size = targetFullSize
+				MainFrame.Size = fullSize
 			end
 		end)
 	end
-end)
+end
+
+makeDraggable(ToggleBtn, ToggleBtn, toggleMenu)
