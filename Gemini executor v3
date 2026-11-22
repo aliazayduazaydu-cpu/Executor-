@@ -1,7 +1,7 @@
 --[[
-	اسم السكربت: Classic Executor 1000 (Stable Size Fix)
+	اسم السكربت: Classic Executor 1000 (Layout Height Fix)
 	المكان: StarterPlayer > StarterPlayerScripts (LocalScript)
-	الوصف: إصلاح مشكلة تغيّر الحجم أثناء الفتح والطي وإعادة الحجم الطبيعي فور الضغط على زر الفتح/الإغلاق.
+	الوصف: إصلاح ظهور القائمة بحجم مضغوط تحت الزر بحيث يظهر كامل الإطار الكلاسيكي بوضوح.
 ]]
 
 -- 1. تعريف الخدمات المطلوبة
@@ -271,6 +271,7 @@ local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "ClassicExecutor1000Gui"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.IgnoreGuiInset = true
 ScreenGui.Parent = PlayerGui
 
 local ClassicTheme = {
@@ -387,34 +388,34 @@ ToggleBtn.TextColor3 = ClassicTheme.Blue
 ToggleBtn.Font = Enum.Font.Code
 ToggleBtn.TextSize = 16
 ToggleBtn.AutoButtonColor = false
+ToggleBtn.ZIndex = 10
 ToggleBtn.Parent = ScreenGui
 sharpCorner(ToggleBtn, 3)
 classicBorder(ToggleBtn, ClassicTheme.Blue, 1)
 
--- 6. القائمة الكلاسيكية الرئيسية بحجم ثابت ومضبوط دون تغير عشوائي
+-- 6. القائمة الكلاسيكية الرئيسية بأبعاد واضحة وثابتة
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "ClassicMainFrame"
-MainFrame.Size = UDim2.new(0, 430, 0, 325)
+MainFrame.Size = UDim2.new(0, 420, 0, 300)
 MainFrame.Position = UDim2.new(0, 10, 0, 52)
 MainFrame.BackgroundColor3 = ClassicTheme.Bg
 MainFrame.BackgroundTransparency = 0.04
 MainFrame.Visible = false
 MainFrame.ClipsDescendants = true
+MainFrame.ZIndex = 5
 MainFrame.Parent = ScreenGui
 sharpCorner(MainFrame, 4)
 classicBorder(MainFrame, ClassicTheme.Border, 1)
 
 local isCollapsed = false
 local isOpen = false
-local activeSizeTween = nil
 
 local function getExpandedSize()
 	local cam = workspace.CurrentCamera
 	local vp = cam and cam.ViewportSize or Vector2.new(1024, 600)
-	if vp.X < 540 then
-		return UDim2.new(0, math.max(270, vp.X - 20), 0, math.min(315, vp.Y - 66))
-	end
-	return UDim2.new(0, 430, 0, 325)
+	local width = (vp.X < 540) and math.max(280, vp.X - 24) or 420
+	local height = math.clamp(vp.Y - 64, 240, 305)
+	return UDim2.new(0, width, 0, height)
 end
 
 local function getCollapsedSize()
@@ -429,48 +430,26 @@ end
 local TabsRow
 local BodyArea
 
-local function applyFrameState(animate)
-	if activeSizeTween then
-		activeSizeTween:Cancel()
-		activeSizeTween = nil
-	end
-
+local function applyFrameState()
 	if not isOpen then
 		MainFrame.Visible = false
 		return
 	end
 
-	local targetSize = getActiveTargetSize()
 	MainFrame.Visible = true
+	MainFrame.Size = getActiveTargetSize()
 	if TabsRow and BodyArea then
 		TabsRow.Visible = not isCollapsed
 		BodyArea.Visible = not isCollapsed
 	end
-
-	if animate then
-		activeSizeTween = TweenService:Create(
-			MainFrame,
-			TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-			{ Size = targetSize }
-		)
-		activeSizeTween:Play()
-		activeSizeTween.Completed:Connect(function(playbackState)
-			if playbackState == Enum.PlaybackState.Completed and isOpen then
-				MainFrame.Size = getActiveTargetSize()
-				clampToViewport(MainFrame)
-			end
-		end)
-	else
-		MainFrame.Size = targetSize
-		clampToViewport(MainFrame)
-	end
+	clampToViewport(MainFrame)
 end
 
 if workspace.CurrentCamera then
 	workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
 		clampToViewport(ToggleBtn)
 		if isOpen then
-			applyFrameState(false)
+			applyFrameState()
 		end
 	end)
 end
@@ -501,7 +480,7 @@ CollapseBtn.Name = "CollapseButton"
 CollapseBtn.Size = UDim2.new(0, 24, 0, 20)
 CollapseBtn.Position = UDim2.new(1, -28, 0.5, -10)
 CollapseBtn.Text = "_"
-CollapseBtn.ZIndex = 5
+CollapseBtn.ZIndex = 8
 CollapseBtn.Parent = DragHeader
 styleBtn(CollapseBtn, ClassicTheme.Item, ClassicTheme.BlueHover)
 
@@ -551,7 +530,7 @@ ExecPage.BackgroundTransparency = 1
 ExecPage.Parent = BodyArea
 
 local InputBoxFrame = Instance.new("Frame")
-InputBoxFrame.Size = UDim2.new(1, 0, 1, -102)
+InputBoxFrame.Size = UDim2.new(1, 0, 1, -94)
 InputBoxFrame.Position = UDim2.new(0, 0, 0, 0)
 InputBoxFrame.BackgroundColor3 = ClassicTheme.Panel
 InputBoxFrame.Parent = ExecPage
@@ -582,8 +561,8 @@ CodeBox:GetPropertyChangedSignal("Text"):Connect(function()
 end)
 
 local StatusLbl = Instance.new("TextLabel")
-StatusLbl.Size = UDim2.new(0.42, 0, 0, 30)
-StatusLbl.Position = UDim2.new(0, 0, 1, -96)
+StatusLbl.Size = UDim2.new(0.42, 0, 0, 28)
+StatusLbl.Position = UDim2.new(0, 0, 1, -89)
 StatusLbl.BackgroundColor3 = ClassicTheme.Panel
 StatusLbl.Text = "جاهز"
 StatusLbl.TextColor3 = ClassicTheme.SubText
@@ -595,23 +574,23 @@ sharpCorner(StatusLbl, 3)
 classicBorder(StatusLbl, ClassicTheme.Border, 1)
 
 local RunBtn = Instance.new("TextButton")
-RunBtn.Size = UDim2.new(0.28, -4, 0, 30)
-RunBtn.Position = UDim2.new(0.44, 0, 1, -96)
+RunBtn.Size = UDim2.new(0.28, -4, 0, 28)
+RunBtn.Position = UDim2.new(0.44, 0, 1, -89)
 RunBtn.Text = "تشغيل"
 RunBtn.Parent = ExecPage
 styleBtn(RunBtn, ClassicTheme.Blue, ClassicTheme.BlueHover)
 
 local ClearBtn = Instance.new("TextButton")
-ClearBtn.Size = UDim2.new(0.28, -4, 0, 30)
-ClearBtn.Position = UDim2.new(0.72, 4, 1, -96)
+ClearBtn.Size = UDim2.new(0.28, -4, 0, 28)
+ClearBtn.Position = UDim2.new(0.72, 4, 1, -89)
 ClearBtn.Text = "مسح"
 ClearBtn.Parent = ExecPage
 styleBtn(ClearBtn, ClassicTheme.Item, ClassicTheme.GreenHover)
 
 local ErrorPanel = Instance.new("Frame")
 ErrorPanel.Name = "ErrorDisplayPanel"
-ErrorPanel.Size = UDim2.new(1, 0, 0, 58)
-ErrorPanel.Position = UDim2.new(0, 0, 1, -58)
+ErrorPanel.Size = UDim2.new(1, 0, 0, 56)
+ErrorPanel.Position = UDim2.new(0, 0, 1, -56)
 ErrorPanel.BackgroundColor3 = ClassicTheme.Panel
 ErrorPanel.Parent = ExecPage
 sharpCorner(ErrorPanel, 3)
@@ -1167,7 +1146,7 @@ TabLearn.MouseButton1Click:Connect(function() selectTab(TabLearn, LearnPage) end
 CollapseBtn.MouseButton1Click:Connect(function()
 	isCollapsed = not isCollapsed
 	CollapseBtn.Text = isCollapsed and "+" or "_"
-	applyFrameState(false)
+	applyFrameState()
 end)
 
 local function toggleMenu()
@@ -1176,9 +1155,9 @@ local function toggleMenu()
 		isCollapsed = false
 		CollapseBtn.Text = "_"
 		MainFrame.Position = UDim2.new(0, ToggleBtn.Position.X.Offset, 0, ToggleBtn.Position.Y.Offset + ToggleBtn.Size.Y.Offset + 4)
-		applyFrameState(false)
+		applyFrameState()
 	else
-		applyFrameState(false)
+		applyFrameState()
 	end
 end
 
