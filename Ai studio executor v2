@@ -1,0 +1,782 @@
+--[[
+	NexusExec v3.0 // Mobile & Desktop Glassmorphism Script Studio
+	Single LocalScript Architecture
+	Install in: StarterPlayer -> StarterPlayerScripts (recommended) or StarterGui
+]]
+
+--// Services
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local CollectionService = game:GetService("CollectionService")
+local Lighting = game:GetService("Lighting")
+local Workspace = game:GetService("Workspace")
+
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+--// Unique Instance Name (Prevents conflicts with Chat, Leaderboard, or duplicates)
+local GUI_NAME = "NexusExec_GlassStudio_v3"
+local existing = PlayerGui:FindFirstChild(GUI_NAME)
+if existing then
+	existing:Destroy()
+end
+
+--// Tags managed via CollectionService
+local TAG_MANAGED = "NexusExec_ManagedObject"
+local TAG_PANEL = "NexusExec_ThemePanel"
+local TAG_SURFACE = "NexusExec_ThemeSurface"
+local TAG_TEXT = "NexusExec_ThemeText"
+
+--// Verified Official Lucide Roblox Asset IDs (with reliable UI styling)
+local ICONS = {
+	Play = "rbxassetid://10734923549",
+	Stop = "rbxassetid://10734965702",
+	Trash = "rbxassetid://10747362393",
+	Gear = "rbxassetid://10734963400",
+	Search = "rbxassetid://10734943674",
+	Minimize = "rbxassetid://10734896206",
+	Maximize = "rbxassetid://10734886735",
+	Close = "rbxassetid://10747384394",
+	Folder = "rbxassetid://10723387563",
+}
+
+--// Theme Definitions (#1e1e1e Deep Charcoal + #00ffff Neon Cyan + #9d00ff Purple)
+local THEMES = {
+	Dark = {
+		MainBg = Color3.fromHex("#1e1e1e"),
+		Surface = Color3.fromRGB(38, 38, 44),
+		EditorBg = Color3.fromRGB(22, 22, 26),
+		TextPrimary = Color3.fromRGB(240, 244, 255),
+		TextMuted = Color3.fromRGB(160, 170, 190),
+		Cyan = Color3.fromHex("#00ffff"),
+		Purple = Color3.fromHex("#9d00ff"),
+		Green = Color3.fromRGB(52, 211, 153),
+		Red = Color3.fromRGB(244, 63, 94),
+		Yellow = Color3.fromRGB(251, 191, 36),
+		Border = Color3.fromRGB(68, 72, 92),
+	},
+	Light = {
+		MainBg = Color3.fromRGB(240, 242, 248),
+		Surface = Color3.fromRGB(224, 228, 238),
+		EditorBg = Color3.fromRGB(250, 251, 255),
+		TextPrimary = Color3.fromRGB(24, 26, 36),
+		TextMuted = Color3.fromRGB(95, 105, 125),
+		Cyan = Color3.fromRGB(0, 165, 190),
+		Purple = Color3.fromRGB(130, 0, 220),
+		Green = Color3.fromRGB(16, 160, 110),
+		Red = Color3.fromRGB(220, 40, 75),
+		Yellow = Color3.fromRGB(205, 135, 0),
+		Border = Color3.fromRGB(190, 196, 214),
+	},
+}
+
+--// Detect Mobile vs Desktop for Responsive Defaults
+local IsMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+
+--// Runtime State
+local State = {
+	ThemeName = "Dark",
+	FontSize = IsMobile and 13 or 14,
+	AutoExecute = false,
+	ShowConsole = true,
+	IsMinimized = IsMobile, -- Mobile defaults to floating toggle button
+	IsMaximized = false,
+	ActiveOverlay = nil, -- "Hub" | "Files" | "History" | "Settings" | "Inspector" | nil
+	ExecuteDebounce = false,
+	FetchDebounce = false,
+	CurrentScriptName = "Main.lua",
+	History = {}, -- Last 10 executed scripts
+	SavedSize = IsMobile and UDim2.fromScale(0.92, 0.80) or UDim2.fromOffset(760, 480),
+	SavedPos = UDim2.fromScale(0.5, 0.52),
+	TrackedConnections = {},
+	TrackedThreads = {},
+}
+
+--// Local Storage Folder (LocalScripts cannot write to DataStoreService directly; PlayerGui folder persists per session)
+local StorageFolder = PlayerGui:FindFirstChild("NexusExec_SavedScripts")
+if not StorageFolder then
+	StorageFolder = Instance.new("Folder")
+	StorageFolder.Name = "NexusExec_SavedScripts"
+	StorageFolder.Parent = PlayerGui
+end
+
+--// Pre-loaded Universal Script Hub Catalog (Simulates Public Raw GitHub Gists / Pastebin API)
+local UNIVERSAL_HUB = {
+	{
+		title = "Universal Dev Fly",
+		sourceUrl = "https://gist.githubusercontent.com/universal/dev-fly/raw",
+		category = "Movement",
+		code = [[-- Universal Developer Flight (Camera-Relative, Auto-GC Tagged)
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local plr = Players.LocalPlayer
+local char = plr.Character or plr.CharacterAdded:Wait()
+local root = char:WaitForChild("HumanoidRootPart")
+local cam = workspace.CurrentCamera
+
+local bv = Instance.new("BodyVelocity")
+bv.MaxForce = Vector3.new(9e4, 9e4, 9e4)
+bv.Velocity = Vector3.zero
+bv.Parent = root
+
+local speed = 60
+local conn = RunService.RenderStepped:Connect(function()
+	if not root or not root.Parent then return end
+	local move = Vector3.zero
+	if UserInputService:IsKeyDown(Enum.KeyCode.W) then move += cam.CFrame.LookVector end
+	if UserInputService:IsKeyDown(Enum.KeyCode.S) then move -= cam.CFrame.LookVector end
+	if UserInputService:IsKeyDown(Enum.KeyCode.D) then move += cam.CFrame.RightVector end
+	if UserInputService:IsKeyDown(Enum.KeyCode.A) then move -= cam.CFrame.RightVector end
+	if UserInputService:IsKeyDown(Enum.KeyCode.Space) then move += Vector3.new(0, 1, 0) end
+	bv.Velocity = move.Magnitude > 0 and (move.Unit * speed) or Vector3.zero
+end)
+print("Dev Fly active! Press Stop to clean up.")]],
+	},
+	{
+		title = "Universal WalkSpeed Boost",
+		sourceUrl = "https://pastebin.com/raw/universal-speed",
+		category = "Character",
+		code = [[-- Universal WalkSpeed Controller
+local plr = game:GetService("Players").LocalPlayer
+local char = plr.Character
+local hum = char and char:FindFirstChildOfClass("Humanoid")
+if hum then
+	hum.WalkSpeed = (hum.WalkSpeed == 16) and 48 or 16
+	print("WalkSpeed set to:", hum.WalkSpeed)
+else
+	warn("Humanoid not found.")
+end]],
+	},
+	{
+		title = "Universal Player Highlight (ESP)",
+		sourceUrl = "https://gist.githubusercontent.com/universal/esp-highlight/raw",
+		category = "Visuals",
+		code = [[-- Universal Player Highlight Visualizer (Uses native Roblox Highlight, GC-safe)
+local Players = game:GetService("Players")
+local localPlr = Players.LocalPlayer
+local count = 0
+for _, plr in ipairs(Players:GetPlayers()) do
+	if plr ~= localPlr and plr.Character then
+		local existing = plr.Character:FindFirstChild("NexusHighlight")
+		if existing then existing:Destroy() end
+		local hl = Instance.new("Highlight")
+		hl.Name = "NexusHighlight"
+		hl.FillColor = Color3.fromHex("#00ffff")
+		hl.OutlineColor = Color3.fromHex("#9d00ff")
+		hl.FillTransparency = 0.65
+		hl.Parent = plr.Character
+		count += 1
+	end
+end
+print("Applied Highlight visualizer to", count, "players.")]],
+	},
+	{
+		title = "Performance & Memory Diagnostics",
+		sourceUrl = "https://pastebin.com/raw/perf-check",
+		category = "System",
+		code = [[-- Client Performance & Memory Check
+local stats = game:GetService("Stats")
+print("Lua Heap (KB):", math.floor(gcinfo()))
+print("Workspace Descendants:", #workspace:GetDescendants())
+print("Studio Mode:", game:GetService("RunService"):IsStudio())]],
+	},
+}
+
+-- Seed a default saved script
+if not StorageFolder:FindFirstChild("Main.lua") then
+	local starter = Instance.new("StringValue")
+	starter.Name = "Main.lua"
+	starter.Value = [[-- NexusExec v3.0 // Ready
+-- Shortcuts: Ctrl/Cmd + Enter (Execute) | Ctrl/Cmd + S (Save) | Esc (Toggle)
+print("Hello from NexusExec!", "Client:", game:GetService("Players").LocalPlayer.Name)
+print("Heap Memory (KB):", math.floor(gcinfo()))]]
+	starter.Parent = StorageFolder
+end
+
+--// GUI References Container
+local UI = {}
+
+--// UI Styling Helpers
+local function addCorner(parent, r)
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0, r)
+	c.Parent = parent
+	return c
+end
+
+local function addStroke(parent, color, thickness, transparency)
+	local s = Instance.new("UIStroke")
+	s.Color = color
+	s.Thickness = thickness or 1
+	s.Transparency = transparency or 0.4
+	s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	s.Parent = parent
+	return s
+end
+
+local function attachHoverTween(btn)
+	local scale = Instance.new("UIScale")
+	scale.Scale = 1
+	scale.Parent = btn
+	local ti = TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+
+	btn.MouseEnter:Connect(function()
+		TweenService:Create(scale, ti, { Scale = 1.05 }):Play()
+	end)
+	btn.MouseLeave:Connect(function()
+		TweenService:Create(scale, ti, { Scale = 1 }):Play()
+	end)
+	btn.MouseButton1Down:Connect(function()
+		TweenService:Create(scale, ti, { Scale = 0.94 }):Play()
+	end)
+	btn.MouseButton1Up:Connect(function()
+		TweenService:Create(scale, ti, { Scale = 1.05 }):Play()
+	end)
+end
+
+--// Console Logger (Auto-scrolls to bottom)
+local function LogConsole(kind, ...)
+	if not UI.ConsoleScroll or not UI.ConsoleScroll.Parent then
+		return
+	end
+	local theme = THEMES[State.ThemeName]
+	local parts = {}
+	for i = 1, select("#", ...) do
+		table.insert(parts, tostring(select(i, ...)))
+	end
+	local text = table.concat(parts, " ")
+	local color = theme.TextPrimary
+	local tag = "[OUT]"
+
+	if kind == "warn" then
+		color = theme.Yellow
+		tag = "[WARN]"
+	elseif kind == "error" then
+		color = theme.Red
+		tag = "[ERR]"
+	elseif kind == "sys" then
+		color = theme.Cyan
+		tag = "[SYS]"
+	elseif kind == "ok" then
+		color = theme.Green
+		tag = "[OK]"
+	end
+
+	local lbl = Instance.new("TextLabel")
+	lbl.Size = UDim2.new(1, -6, 0, 0)
+	lbl.AutomaticSize = Enum.AutomaticSize.Y
+	lbl.BackgroundTransparency = 1
+	lbl.Font = Enum.Font.Code
+	lbl.TextSize = math.max(11, State.FontSize - 2)
+	lbl.TextWrapped = true
+	lbl.TextXAlignment = Enum.TextXAlignment.Left
+	lbl.TextColor3 = color
+	lbl.Text = string.format("[%s] %s %s", os.date("%H:%M:%S"), tag, text)
+	lbl.Parent = UI.ConsoleScroll
+
+	-- Auto-scroll smoothly after layout recalculation
+	task.defer(function()
+		if UI.ConsoleScroll and UI.ConsoleScroll.Parent then
+			UI.ConsoleScroll.CanvasPosition = Vector2.new(0, UI.ConsoleScroll.AbsoluteCanvasSize.Y)
+		end
+	end)
+end
+
+--// Apply Dark/Light Theme via CollectionService Tags
+local function ApplyTheme(themeName)
+	State.ThemeName = themeName
+	local t = THEMES[themeName]
+
+	for _, obj in ipairs(CollectionService:GetTagged(TAG_PANEL)) do
+		if obj:IsA("GuiObject") then
+			obj.BackgroundColor3 = t.MainBg
+		end
+	end
+	for _, obj in ipairs(CollectionService:GetTagged(TAG_SURFACE)) do
+		if obj:IsA("GuiObject") then
+			obj.BackgroundColor3 = t.Surface
+		end
+	end
+	for _, obj in ipairs(CollectionService:GetTagged(TAG_TEXT)) do
+		if obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox") then
+			obj.TextColor3 = t.TextPrimary
+		end
+	end
+
+	if UI.EditorFrame then UI.EditorFrame.BackgroundColor3 = t.EditorBg end
+	if UI.ConsoleFrame then UI.ConsoleFrame.BackgroundColor3 = t.EditorBg end
+	if UI.ThemeBtn then UI.ThemeBtn.Text = "Theme: " .. themeName end
+end
+
+--// Glassmorphism Blur Control
+local function UpdateBlur()
+	if not UI.Blur then return end
+	local target = (not State.IsMinimized) and 8 or 0
+	TweenService:Create(UI.Blur, TweenInfo.new(0.22, Enum.EasingStyle.Quad), { Size = target }):Play()
+end
+
+--// =========================================================================
+--// 1. CreateGUI() - Constructs entire responsive Glassmorphism UI
+--// =========================================================================
+local function CreateGUI()
+	local screenGui = Instance.new("ScreenGui")
+	screenGui.Name = GUI_NAME
+	screenGui.ResetOnSpawn = false
+	screenGui.IgnoreGuiInset = false -- Prevents overlapping Roblox TopBar / Chat / Leaderboard
+	screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	screenGui.DisplayOrder = 25
+	screenGui.Parent = PlayerGui
+	UI.ScreenGui = screenGui
+
+	-- Glassmorphism Lighting Blur
+	local blur = Lighting:FindFirstChild("NexusExec_GlassBlur")
+	if not blur then
+		blur = Instance.new("BlurEffect")
+		blur.Name = "NexusExec_GlassBlur"
+		blur.Size = 0
+		blur.Parent = Lighting
+	end
+	UI.Blur = blur
+
+	local t = THEMES[State.ThemeName]
+
+	-- Floating Toggle Button (Compact Mobile Default & Minimized Restore)
+	local togglePill = Instance.new("TextButton")
+	togglePill.Name = "FloatingToggle"
+	togglePill.AnchorPoint = Vector2.new(0.5, 1)
+	togglePill.Position = UDim2.new(0.5, 0, 1, -16)
+	togglePill.Size = IsMobile and UDim2.fromOffset(170, 44) or UDim2.fromOffset(156, 36)
+	togglePill.BackgroundColor3 = t.MainBg
+	togglePill.BackgroundTransparency = 0.12
+	togglePill.Font = Enum.Font.GothamBold
+	togglePill.TextSize = IsMobile and 14 or 12
+	togglePill.TextColor3 = t.Cyan
+	togglePill.Text = "  NexusExec"
+	togglePill.Visible = State.IsMinimized
+	togglePill.Parent = screenGui
+	addCorner(togglePill, 22)
+	addStroke(togglePill, t.Purple, 1.5, 0.25)
+	CollectionService:AddTag(togglePill, TAG_PANEL)
+	attachHoverTween(togglePill)
+	UI.TogglePill = togglePill
+
+	-- Main Window
+	local main = Instance.new("Frame")
+	main.Name = "MainWindow"
+	main.AnchorPoint = Vector2.new(0.5, 0.5)
+	main.Position = State.SavedPos
+	main.Size = State.SavedSize
+	main.BackgroundColor3 = t.MainBg
+	main.BackgroundTransparency = 0.16 -- Glassmorphism translucency
+	main.ClipsDescendants = true
+	main.Visible = not State.IsMinimized
+	main.Parent = screenGui
+	addCorner(main, 12)
+	addStroke(main, t.Cyan, 1.4, 0.35)
+	CollectionService:AddTag(main, TAG_PANEL)
+	UI.MainWindow = main
+
+	local grad = Instance.new("UIGradient")
+	grad.Color = ColorSequence.new(Color3.fromRGB(30, 30, 34), Color3.fromRGB(22, 18, 36))
+	grad.Rotation = 135
+	grad.Parent = main
+
+	local sizeLimits = Instance.new("UISizeConstraint")
+	sizeLimits.MinSize = Vector2.new(330, 310)
+	sizeLimits.MaxSize = Vector2.new(1280, 820)
+	sizeLimits.Parent = main
+
+	-- Header / Title Bar
+	local headerHeight = IsMobile and 46 or 40
+	local header = Instance.new("Frame")
+	header.Name = "Header"
+	header.Size = UDim2.new(1, 0, 0, headerHeight)
+	header.BackgroundColor3 = t.Surface
+	header.BackgroundTransparency = 0.2
+	header.Parent = main
+	CollectionService:AddTag(header, TAG_SURFACE)
+	UI.Header = header
+
+	local title = Instance.new("TextLabel")
+	title.Position = UDim2.fromOffset(14, 0)
+	title.Size = UDim2.new(0.55, 0, 1, 0)
+	title.BackgroundTransparency = 1
+	title.Font = Enum.Font.GothamBold
+	title.TextSize = IsMobile and 15 or 14
+	title.TextXAlignment = Enum.TextXAlignment.Left
+	title.Text = "NexusExec v3.0"
+	title.TextColor3 = t.Cyan
+	title.Parent = header
+
+	local winBtnRow = Instance.new("Frame")
+	winBtnRow.AnchorPoint = Vector2.new(1, 0.5)
+	winBtnRow.Position = UDim2.new(1, -10, 0.5, 0)
+	winBtnRow.Size = UDim2.fromOffset(IsMobile and 126 or 106, IsMobile and 34 or 28)
+	winBtnRow.BackgroundTransparency = 1
+	winBtnRow.Parent = header
+
+	local winLayout = Instance.new("UIListLayout")
+	winLayout.FillDirection = Enum.FillDirection.Horizontal
+	winLayout.HorizontalAlignment = Enum.HorizontalAlignment.Right
+	winLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+	winLayout.Padding = UDim.new(0, 6)
+	winLayout.Parent = winBtnRow
+
+	local function makeHeaderBtn(iconId, accent)
+		local b = Instance.new("TextButton")
+		b.Size = UDim2.fromOffset(IsMobile and 36 or 28, IsMobile and 34 or 28)
+		b.BackgroundColor3 = t.MainBg
+		b.BackgroundTransparency = 0.25
+		b.Text = ""
+		b.Parent = winBtnRow
+		addCorner(b, 6)
+		addStroke(b, accent, 1, 0.5)
+		attachHoverTween(b)
+		local img = Instance.new("ImageLabel")
+		img.AnchorPoint = Vector2.new(0.5, 0.5)
+		img.Position = UDim2.fromScale(0.5, 0.5)
+		img.Size = UDim2.fromOffset(14, 14)
+		img.BackgroundTransparency = 1
+		img.Image = iconId
+		img.ImageColor3 = accent
+		img.Parent = b
+		return b
+	end
+
+	UI.MinBtn = makeHeaderBtn(ICONS.Minimize, t.Yellow)
+	UI.MaxBtn = makeHeaderBtn(ICONS.Maximize, t.Cyan)
+	UI.CloseBtn = makeHeaderBtn(ICONS.Close, t.Red)
+
+	-- Toolbar (Execute, Stop, Clear, Save, Load/Hub/History, Settings)
+	local toolbarHeight = IsMobile and 46 or 40
+	local toolbar = Instance.new("ScrollingFrame")
+	toolbar.Name = "Toolbar"
+	toolbar.Position = UDim2.fromOffset(8, headerHeight + 6)
+	toolbar.Size = UDim2.new(1, -16, 0, toolbarHeight)
+	toolbar.BackgroundTransparency = 1
+	toolbar.ScrollBarThickness = 2
+	toolbar.ScrollingDirection = Enum.ScrollingDirection.X
+	toolbar.CanvasSize = UDim2.new(0, 0, 0, 0)
+	toolbar.AutomaticCanvasSize = Enum.AutomaticSize.X
+	toolbar.BorderSizePixel = 0
+	toolbar.Parent = main
+
+	local tbLayout = Instance.new("UIListLayout")
+	tbLayout.FillDirection = Enum.FillDirection.Horizontal
+	tbLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+	tbLayout.Padding = UDim.new(0, 6)
+	tbLayout.Parent = toolbar
+
+	local function makeToolBtn(label, iconId, accent, width)
+		local b = Instance.new("TextButton")
+		b.Size = UDim2.fromOffset(width, IsMobile and 38 or 30)
+		b.BackgroundColor3 = t.Surface
+		b.BackgroundTransparency = 0.15
+		b.Text = ""
+		b.Parent = toolbar
+		addCorner(b, 7)
+		addStroke(b, accent, 1, 0.4)
+		CollectionService:AddTag(b, TAG_SURFACE)
+		attachHoverTween(b)
+
+		local row = Instance.new("UIListLayout")
+		row.FillDirection = Enum.FillDirection.Horizontal
+		row.HorizontalAlignment = Enum.HorizontalAlignment.Center
+		row.VerticalAlignment = Enum.VerticalAlignment.Center
+		row.Padding = UDim.new(0, 5)
+		row.Parent = b
+
+		if iconId then
+			local ic = Instance.new("ImageLabel")
+			ic.Size = UDim2.fromOffset(14, 14)
+			ic.BackgroundTransparency = 1
+			ic.Image = iconId
+			ic.ImageColor3 = accent
+			ic.Parent = b
+		end
+
+		local txt = Instance.new("TextLabel")
+		txt.AutomaticSize = Enum.AutomaticSize.X
+		txt.Size = UDim2.new(0, 0, 1, 0)
+		txt.BackgroundTransparency = 1
+		txt.Font = Enum.Font.GothamBold
+		txt.TextSize = IsMobile and 12 or 11
+		txt.Text = label
+		txt.TextColor3 = t.TextPrimary
+		txt.Parent = b
+		CollectionService:AddTag(txt, TAG_TEXT)
+		return b
+	end
+
+	UI.ExecBtn = makeToolBtn("Execute", ICONS.Play, t.Green, 88)
+	UI.StopBtn = makeToolBtn("Stop", ICONS.Stop, t.Red, 72)
+	UI.ClearBtn = makeToolBtn("Clear", ICONS.Trash, t.Yellow, 74)
+	UI.SaveBtn = makeToolBtn("Save", ICONS.Folder, t.Cyan, 72)
+	UI.LoadBtn = makeToolBtn("Files", ICONS.Folder, t.Purple, 72)
+	UI.HubBtn = makeToolBtn("Hub", ICONS.Search, t.Cyan, 68)
+	UI.HistoryBtn = makeToolBtn("History", nil, t.Purple, 66)
+	UI.InspectorBtn = makeToolBtn("Vars", nil, t.Cyan, 58)
+	UI.SettingsBtn = makeToolBtn("Settings", ICONS.Gear, t.TextMuted, 86)
+
+	-- Content Container (Editor + Console)
+	local contentTop = headerHeight + toolbarHeight + 12
+	local content = Instance.new("Frame")
+	content.Name = "ContentArea"
+	content.Position = UDim2.fromOffset(8, contentTop)
+	content.Size = UDim2.new(1, -16, 1, -(contentTop + 10))
+	content.BackgroundTransparency = 1
+	content.Parent = main
+	UI.ContentArea = content
+
+	-- Editor Frame
+	local editorFrame = Instance.new("Frame")
+	editorFrame.Name = "EditorFrame"
+	editorFrame.Size = UDim2.new(1, 0, 0.66, -4)
+	editorFrame.BackgroundColor3 = t.EditorBg
+	editorFrame.BackgroundTransparency = 0.1
+	editorFrame.Parent = content
+	addCorner(editorFrame, 8)
+	addStroke(editorFrame, t.Border, 1, 0.45)
+	UI.EditorFrame = editorFrame
+
+	local editorScroll = Instance.new("ScrollingFrame")
+	editorScroll.Position = UDim2.fromOffset(6, 6)
+	editorScroll.Size = UDim2.new(1, -12, 1, -12)
+	editorScroll.BackgroundTransparency = 1
+	editorScroll.ScrollBarThickness = 5
+	editorScroll.ScrollBarImageColor3 = t.Cyan
+	editorScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+	editorScroll.AutomaticCanvasSize = Enum.AutomaticSize.XY
+	editorScroll.BorderSizePixel = 0
+	editorScroll.Parent = editorFrame
+
+	local codeBox = Instance.new("TextBox")
+	codeBox.Name = "CodeBox"
+	codeBox.Size = UDim2.new(1, -8, 1, -8)
+	codeBox.AutomaticSize = Enum.AutomaticSize.XY
+	codeBox.BackgroundTransparency = 1
+	codeBox.Font = Enum.Font.Code
+	codeBox.TextSize = State.FontSize
+	codeBox.MultiLine = true
+	codeBox.ClearTextOnFocus = false
+	codeBox.TextWrapped = false
+	codeBox.TextXAlignment = Enum.TextXAlignment.Left
+	codeBox.TextYAlignment = Enum.TextYAlignment.Top
+	codeBox.TextColor3 = t.TextPrimary
+	codeBox.Text = StorageFolder:FindFirstChild("Main.lua").Value
+	codeBox.Parent = editorScroll
+	CollectionService:AddTag(codeBox, TAG_TEXT)
+	UI.CodeBox = codeBox
+
+	-- Bottom Console Panel
+	local consoleFrame = Instance.new("Frame")
+	consoleFrame.Name = "ConsoleFrame"
+	consoleFrame.Position = UDim2.new(0, 0, 0.66, 4)
+	consoleFrame.Size = UDim2.new(1, 0, 0.34, -4)
+	consoleFrame.BackgroundColor3 = t.EditorBg
+	consoleFrame.BackgroundTransparency = 0.1
+	consoleFrame.Visible = State.ShowConsole
+	consoleFrame.Parent = content
+	addCorner(consoleFrame, 8)
+	addStroke(consoleFrame, t.Purple, 1, 0.5)
+	UI.ConsoleFrame = consoleFrame
+
+	local consoleHeader = Instance.new("TextLabel")
+	consoleHeader.Position = UDim2.fromOffset(8, 2)
+	consoleHeader.Size = UDim2.new(1, -16, 0, 18)
+	consoleHeader.BackgroundTransparency = 1
+	consoleHeader.Font = Enum.Font.GothamBold
+	consoleHeader.TextSize = 10
+	consoleHeader.TextXAlignment = Enum.TextXAlignment.Left
+	consoleHeader.Text = "CONSOLE OUTPUT"
+	consoleHeader.TextColor3 = t.Purple
+	consoleHeader.Parent = consoleFrame
+
+	local consoleScroll = Instance.new("ScrollingFrame")
+	consoleScroll.Position = UDim2.fromOffset(6, 20)
+	consoleScroll.Size = UDim2.new(1, -12, 1, -24)
+	consoleScroll.BackgroundTransparency = 1
+	consoleScroll.ScrollBarThickness = 4
+	consoleScroll.ScrollBarImageColor3 = t.Purple
+	consoleScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+	consoleScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	consoleScroll.BorderSizePixel = 0
+	consoleScroll.Parent = consoleFrame
+	UI.ConsoleScroll = consoleScroll
+
+	local consoleLayout = Instance.new("UIListLayout")
+	consoleLayout.Padding = UDim.new(0, 3)
+	consoleLayout.Parent = consoleScroll
+
+	-- Overlay Drawer (Shared cleanly for Hub / Files / History / Settings / Inspector)
+	local overlay = Instance.new("Frame")
+	overlay.Name = "OverlayDrawer"
+	overlay.AnchorPoint = Vector2.new(0.5, 0.5)
+	overlay.Position = UDim2.fromScale(0.5, 0.54)
+	overlay.Size = UDim2.new(0.88, 0, 0.78, 0)
+	overlay.BackgroundColor3 = t.MainBg
+	overlay.BackgroundTransparency = 0.06
+	overlay.Visible = false
+	overlay.ZIndex = 15
+	overlay.Parent = main
+	addCorner(overlay, 10)
+	addStroke(overlay, t.Cyan, 1.5, 0.25)
+	CollectionService:AddTag(overlay, TAG_PANEL)
+	UI.Overlay = overlay
+
+	local ovTitle = Instance.new("TextLabel")
+	ovTitle.Position = UDim2.fromOffset(12, 6)
+	ovTitle.Size = UDim2.new(1, -50, 0, 28)
+	ovTitle.BackgroundTransparency = 1
+	ovTitle.Font = Enum.Font.GothamBold
+	ovTitle.TextSize = 14
+	ovTitle.TextXAlignment = Enum.TextXAlignment.Left
+	ovTitle.TextColor3 = t.Cyan
+	ovTitle.ZIndex = 16
+	ovTitle.Parent = overlay
+	UI.OverlayTitle = ovTitle
+
+	local ovClose = Instance.new("TextButton")
+	ovClose.AnchorPoint = Vector2.new(1, 0)
+	ovClose.Position = UDim2.new(1, -8, 0, 6)
+	ovClose.Size = UDim2.fromOffset(28, 28)
+	ovClose.BackgroundColor3 = t.Surface
+	ovClose.Font = Enum.Font.GothamBold
+	ovClose.TextSize = 13
+	ovClose.Text = "×"
+	ovClose.TextColor3 = t.Red
+	ovClose.ZIndex = 16
+	ovClose.Parent = overlay
+	addCorner(ovClose, 6)
+	UI.OverlayClose = ovClose
+
+	-- Search Bar inside Overlay (Used when ActiveOverlay == "Hub")
+	local searchFrame = Instance.new("Frame")
+	searchFrame.Position = UDim2.fromOffset(10, 38)
+	searchFrame.Size = UDim2.new(1, -20, 0, 32)
+	searchFrame.BackgroundColor3 = t.Surface
+	searchFrame.Visible = false
+	searchFrame.ZIndex = 16
+	searchFrame.Parent = overlay
+	addCorner(searchFrame, 6)
+	addStroke(searchFrame, t.Border, 1, 0.4)
+	CollectionService:AddTag(searchFrame, TAG_SURFACE)
+	UI.SearchFrame = searchFrame
+
+	local searchInput = Instance.new("TextBox")
+	searchInput.Position = UDim2.fromOffset(10, 0)
+	searchInput.Size = UDim2.new(1, -86, 1, 0)
+	searchInput.BackgroundTransparency = 1
+	searchInput.Font = Enum.Font.Gotham
+	searchInput.TextSize = 12
+	searchInput.PlaceholderText = "Search Universal Scripts or Raw URL..."
+	searchInput.PlaceholderColor3 = t.TextMuted
+	searchInput.TextColor3 = t.TextPrimary
+	searchInput.Text = ""
+	searchInput.ClearTextOnFocus = false
+	searchInput.TextXAlignment = Enum.TextXAlignment.Left
+	searchInput.ZIndex = 17
+	searchInput.Parent = searchFrame
+	CollectionService:AddTag(searchInput, TAG_TEXT)
+	UI.SearchInput = searchInput
+
+	local fetchBtn = Instance.new("TextButton")
+	fetchBtn.AnchorPoint = Vector2.new(1, 0.5)
+	fetchBtn.Position = UDim2.new(1, -4, 0.5, 0)
+	fetchBtn.Size = UDim2.fromOffset(72, 24)
+	fetchBtn.BackgroundColor3 = t.MainBg
+	fetchBtn.Font = Enum.Font.GothamBold
+	fetchBtn.TextSize = 11
+	fetchBtn.Text = "Search"
+	fetchBtn.TextColor3 = t.Cyan
+	fetchBtn.ZIndex = 17
+	fetchBtn.Parent = searchFrame
+	addCorner(fetchBtn, 5)
+	UI.FetchBtn = fetchBtn
+
+	local ovScroll = Instance.new("ScrollingFrame")
+	ovScroll.Position = UDim2.fromOffset(10, 40)
+	ovScroll.Size = UDim2.new(1, -20, 1, -50)
+	ovScroll.BackgroundTransparency = 1
+	ovScroll.ScrollBarThickness = 4
+	ovScroll.ScrollBarImageColor3 = t.Cyan
+	ovScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+	ovScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	ovScroll.BorderSizePixel = 0
+	ovScroll.ZIndex = 16
+	ovScroll.Parent = overlay
+	UI.OverlayScroll = ovScroll
+
+	local ovLayout = Instance.new("UIListLayout")
+	ovLayout.Padding = UDim.new(0, 6)
+	ovLayout.Parent = ovScroll
+
+	-- Desktop Resize Grip (Hidden on Mobile)
+	if not IsMobile then
+		local grip = Instance.new("TextButton")
+		grip.Name = "ResizeGrip"
+		grip.AnchorPoint = Vector2.new(1, 1)
+		grip.Position = UDim2.new(1, -2, 1, -2)
+		grip.Size = UDim2.fromOffset(16, 16)
+		grip.BackgroundTransparency = 1
+		grip.Font = Enum.Font.Code
+		grip.TextSize = 12
+		grip.Text = "◢"
+		grip.TextColor3 = t.Purple
+		grip.ZIndex = 20
+		grip.Parent = main
+		UI.ResizeGrip = grip
+	end
+end
+
+--// =========================================================================
+--// 2. Garbage Collection & Overlay Population Helpers
+--// =========================================================================
+local function CleanupGC()
+	local objCount, connCount, thCount = 0, 0, 0
+	for _, obj in ipairs(CollectionService:GetTagged(TAG_MANAGED)) do
+		if obj and obj.Parent then
+			obj:Destroy()
+			objCount += 1
+		end
+	end
+	for _, conn in ipairs(State.TrackedConnections) do
+		if conn.Connected then
+			conn:Disconnect()
+			connCount += 1
+		end
+	end
+	table.clear(State.TrackedConnections)
+	for _, th in ipairs(State.TrackedThreads) do
+		if coroutine.status(th) ~= "dead" then
+			pcall(task.cancel, th)
+			thCount += 1
+		end
+	end
+	table.clear(State.TrackedThreads)
+	LogConsole("ok", string.format("GC Sweep: %d objects, %d connections, %d threads cleaned.", objCount, connCount, thCount))
+end
+
+local function ClearOverlayList()
+	for _, child in ipairs(UI.OverlayScroll:GetChildren()) do
+		if child:IsA("GuiObject") then
+			child:Destroy()
+		end
+	end
+end
+
+local function OpenOverlay(modeName, titleText)
+	State.ActiveOverlay = modeName
+	UI.OverlayTitle.Text = titleText
+	local showSearch = (modeName == "Hub")
+	UI.SearchFrame.Visible = showSearch
+	UI.OverlayScroll.Position = UDim2.fromOffset(10, showSearch and 76 or 40)
+	UI.OverlayScroll.Size = UDim2.new(1, -20, 1, showSearch and -86 or -50)
+	UI.Overlay.Visible = true
+	ClearOverlayList()
+end
+
+--// ====================================================================
