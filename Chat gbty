@@ -1,0 +1,1137 @@
+
+--========================================================
+-- UNSHACKLED V2 | GLASS EDITION
+-- Safe Roblox Luau Development Environment
+-- Single LocalScript
+--========================================================
+
+-- SERVICES
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local CollectionService = game:GetService("CollectionService")
+local RunService = game:GetService("RunService")
+
+local Player = Players.LocalPlayer
+local PlayerGui = Player:WaitForChild("PlayerGui")
+
+--========================================================
+-- CONFIGURATION
+--========================================================
+
+local CONFIG = {
+    Name = "UNSHACKLED",
+    Version = "2.0.0",
+
+    MobileDefaultClosed = true,
+
+    FontSize = 14,
+    Theme = "Dark",
+
+    ConsoleVisible = true,
+    MaxHistory = 10,
+    MaxLogs = 150,
+
+    Debounce = 0.35,
+}
+
+local THEME = {
+    Dark = {
+        Background = Color3.fromRGB(24, 24, 27),
+        Panel = Color3.fromRGB(32, 33, 39),
+        Editor = Color3.fromRGB(20, 21, 26),
+        Text = Color3.fromRGB(240, 243, 255),
+        Muted = Color3.fromRGB(145, 151, 170),
+        Cyan = Color3.fromRGB(0, 255, 255),
+        Purple = Color3.fromRGB(157, 0, 255),
+        Green = Color3.fromRGB(80, 225, 145),
+        Red = Color3.fromRGB(255, 85, 100),
+        Orange = Color3.fromRGB(255, 190, 80),
+    },
+
+    Light = {
+        Background = Color3.fromRGB(230, 235, 245),
+        Panel = Color3.fromRGB(245, 247, 252),
+        Editor = Color3.fromRGB(255, 255, 255),
+        Text = Color3.fromRGB(30, 35, 50),
+        Muted = Color3.fromRGB(100, 110, 130),
+        Cyan = Color3.fromRGB(0, 140, 180),
+        Purple = Color3.fromRGB(125, 50, 200),
+        Green = Color3.fromRGB(20, 160, 90),
+        Red = Color3.fromRGB(220, 50, 70),
+        Orange = Color3.fromRGB(200, 125, 20),
+    }
+}
+
+local C = THEME[CONFIG.Theme]
+
+--========================================================
+-- STATE
+--========================================================
+
+local State = {
+    Open = false,
+    Minimized = false,
+    Running = false,
+    Stopped = false,
+
+    LastClick = 0,
+
+    CurrentFile = "Main.lua",
+
+    Files = {},
+    History = {},
+    Logs = {},
+
+    Connections = {},
+}
+
+local Examples = {
+    {
+        Name = "Welcome.lua",
+        Description = "Welcome message",
+        Code = [[
+print("Welcome to UNSHACKLED!")
+warn("Development environment ready")
+help()
+]]
+    },
+
+    {
+        Name = "PlayerInfo.lua",
+        Description = "Read your player information",
+        Code = [[
+player_info()
+]]
+    },
+
+    {
+        Name = "WorkspaceInfo.lua",
+        Description = "Inspect workspace summary",
+        Code = [[
+workspace_info()
+]]
+    },
+
+    {
+        Name = "Help.lua",
+        Description = "Available commands",
+        Code = [[
+help()
+]]
+    }
+}
+
+--========================================================
+-- CLEAN OLD UI
+--========================================================
+
+local Old = PlayerGui:FindFirstChild("UNSHACKLED_V2")
+
+if Old then
+    Old:Destroy()
+end
+
+--========================================================
+-- UTILITIES
+--========================================================
+
+local function New(class, props, parent)
+    local obj = Instance.new(class)
+
+    for key, value in pairs(props or {}) do
+        obj[key] = value
+    end
+
+    obj.Parent = parent
+
+    return obj
+end
+
+local function AddCorner(parent, radius)
+    return New("UICorner", {
+        CornerRadius = UDim.new(0, radius or 10)
+    }, parent)
+end
+
+local function AddStroke(parent, color, thickness, transparency)
+    return New("UIStroke", {
+        Color = color or C.Cyan,
+        Thickness = thickness or 1,
+        Transparency = transparency or 0.5
+    }, parent)
+end
+
+local function AddGradient(parent)
+    return New("UIGradient", {
+        Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, C.Cyan),
+            ColorSequenceKeypoint.new(1, C.Purple)
+        }),
+        Rotation = 35
+    }, parent)
+end
+
+local function Tween(object, properties, duration)
+    if not object or not object.Parent then
+        return
+    end
+
+    local t = TweenService:Create(
+        object,
+        TweenInfo.new(
+            duration or 0.2,
+            Enum.EasingStyle.Quart,
+            Enum.EasingDirection.Out
+        ),
+        properties
+    )
+
+    t:Play()
+    return t
+end
+
+local function Track(connection)
+    table.insert(State.Connections, connection)
+    return connection
+end
+
+local function Cleanup()
+    State.Stopped = true
+
+    for _, connection in ipairs(State.Connections) do
+        pcall(function()
+            connection:Disconnect()
+        end)
+    end
+
+    table.clear(State.Connections)
+end
+
+--========================================================
+-- GUI ROOT
+--========================================================
+
+local Screen = New("ScreenGui", {
+    Name = "UNSHACKLED_V2",
+    ResetOnSpawn = false,
+    ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+    DisplayOrder = 50
+}, PlayerGui)
+
+local Main = New("Frame", {
+    Name = "MainWindow",
+    AnchorPoint = Vector2.new(0.5, 0.5),
+    Position = UDim2.fromScale(0.5, 0.5),
+    Size = UDim2.fromScale(0.92, 0.78),
+    BackgroundColor3 = C.Background,
+    BackgroundTransparency = 0.08,
+    BorderSizePixel = 0,
+    ClipsDescendants = true,
+    Visible = false
+}, Screen)
+
+AddCorner(Main, 15)
+AddStroke(Main, C.Cyan, 1.5, 0.25)
+AddGradient(Main)
+
+local MainScale = New("UIScale", {
+    Scale = 1
+}, Main)
+
+--========================================================
+-- RESPONSIVE
+--========================================================
+
+local function UpdateResponsive()
+    local camera = workspace.CurrentCamera
+
+    if not camera then
+        return
+    end
+
+    local viewport = camera.ViewportSize
+
+    if viewport.X <= 650 then
+        Main.Size = UDim2.fromScale(0.96, 0.80)
+    else
+        Main.Size = UDim2.fromScale(0.84, 0.82)
+    end
+end
+
+UpdateResponsive()
+
+if workspace.CurrentCamera then
+    Track(workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(UpdateResponsive))
+end
+
+--========================================================
+-- FLOATING BUTTON
+--========================================================
+
+local Floating = New("TextButton", {
+    Name = "FloatingToggle",
+    Size = UDim2.fromOffset(53, 53),
+    Position = UDim2.new(1, -70, 0.65, 0),
+    BackgroundColor3 = C.Panel,
+    Text = "U",
+    TextColor3 = C.Cyan,
+    Font = Enum.Font.GothamBlack,
+    TextSize = 22,
+    AutoButtonColor = false,
+    BorderSizePixel = 0,
+    Visible = true
+}, Screen)
+
+AddCorner(Floating, 18)
+AddStroke(Floating, C.Cyan, 1.5, 0.1)
+
+--========================================================
+-- MAIN HEADER
+--========================================================
+
+local Header = New("Frame", {
+    Name = "Header",
+    Size = UDim2.new(1, 0, 0, 49),
+    BackgroundColor3 = C.Panel,
+    BackgroundTransparency = 0.08,
+    BorderSizePixel = 0
+}, Main)
+
+local AppTitle = New("TextLabel", {
+    Position = UDim2.fromOffset(15, 0),
+    Size = UDim2.new(0.6, 0, 1, 0),
+    BackgroundTransparency = 1,
+    Text = "◆ UNSHACKLED",
+    TextColor3 = C.Cyan,
+    TextSize = 16,
+    Font = Enum.Font.GothamBold,
+    TextXAlignment = Enum.TextXAlignment.Left
+}, Header)
+
+local AppVersion = New("TextLabel", {
+    Position = UDim2.new(1, -160, 0, 0),
+    Size = UDim2.fromOffset(55, 49),
+    BackgroundTransparency = 1,
+    Text = "V2.0",
+    TextColor3 = C.Muted,
+    Font = Enum.Font.Gotham,
+    TextSize = 10
+}, Header)
+
+local function MakeButton(parent, text, width)
+    local b = New("TextButton", {
+        Size = UDim2.fromOffset(width or 42, 32),
+        BackgroundColor3 = C.Panel,
+        Text = text,
+        TextColor3 = C.Text,
+        Font = Enum.Font.GothamBold,
+        TextSize = 13,
+        BorderSizePixel = 0,
+        AutoButtonColor = false
+    }, parent)
+
+    AddCorner(b, 8)
+    AddStroke(b, C.Cyan, 0.8, 0.6)
+
+    Track(b.MouseEnter:Connect(function()
+        Tween(b, {
+            BackgroundColor3 = C.Purple
+        }, 0.15)
+    end))
+
+    Track(b.MouseLeave:Connect(function()
+        Tween(b, {
+            BackgroundColor3 = C.Panel
+        }, 0.15)
+    end))
+
+    return b
+end
+
+local MinButton = MakeButton(Header, "−", 30)
+MinButton.Position = UDim2.new(1, -75, 0, 8)
+
+local CloseButton = MakeButton(Header, "×", 30)
+CloseButton.Position = UDim2.new(1, -38, 0, 8)
+
+--========================================================
+-- DRAG WINDOW
+--========================================================
+
+local dragging = false
+local dragStart
+local startPos
+
+Track(Header.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+
+        dragging = true
+        dragStart = input.Position
+        startPos = Main.Position
+    end
+end))
+
+Track(UserInputService.InputChanged:Connect(function(input)
+    if dragging and (
+        input.UserInputType == Enum.UserInputType.MouseMovement
+        or input.UserInputType == Enum.UserInputType.Touch
+    ) then
+
+        local delta = input.Position - dragStart
+
+        Main.Position = UDim2.new(
+            startPos.X.Scale,
+            startPos.X.Offset + delta.X,
+            startPos.Y.Scale,
+            startPos.Y.Offset + delta.Y
+        )
+    end
+end))
+
+Track(UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+
+        dragging = false
+    end
+end))
+
+--========================================================
+-- FLOATING OPEN/CLOSE
+--========================================================
+
+local function OpenUI()
+    State.Open = true
+    Main.Visible = true
+    Floating.Visible = false
+
+    Main.BackgroundTransparency = 1
+
+    Tween(Main, {
+        BackgroundTransparency = 0.08
+    }, 0.25)
+end
+
+local function CloseUI()
+    State.Open = false
+
+    Tween(Main, {
+        BackgroundTransparency = 1
+    }, 0.15)
+
+    task.delay(0.16, function()
+        if not State.Open and Screen.Parent then
+            Main.Visible = false
+            Floating.Visible = true
+        end
+    end)
+end
+
+Track(Floating.MouseButton1Click:Connect(function()
+    OpenUI()
+end))
+
+Track(CloseButton.MouseButton1Click:Connect(function()
+    CloseUI()
+end))
+
+local minimized = false
+
+Track(MinButton.MouseButton1Click:Connect(function()
+    minimized = not minimized
+
+    if minimized then
+        Tween(Main, {
+            Size = UDim2.new(0.72, 0, 0, 49)
+        }, 0.2)
+    else
+        UpdateResponsive()
+    end
+end))
+
+--========================================================
+-- TOOLBAR
+--========================================================
+
+local Toolbar = New("ScrollingFrame", {
+    Position = UDim2.fromOffset(8, 57),
+    Size = UDim2.new(1, -16, 0, 42),
+    BackgroundColor3 = C.Panel,
+    BackgroundTransparency = 0.1,
+    BorderSizePixel = 0,
+    ScrollBarThickness = 0,
+    ScrollingDirection = Enum.ScrollingDirection.X,
+    AutomaticCanvasSize = Enum.AutomaticSize.X,
+    CanvasSize = UDim2.new()
+}, Main)
+
+AddCorner(Toolbar, 8)
+
+local ToolLayout = New("UIListLayout", {
+    FillDirection = Enum.FillDirection.Horizontal,
+    Padding = UDim.new(0, 7),
+    VerticalAlignment = Enum.VerticalAlignment.Center
+}, Toolbar)
+
+New("UIPadding", {
+    PaddingLeft = UDim.new(0, 7),
+    PaddingRight = UDim.new(0, 7)
+}, Toolbar)
+
+local RunButton = MakeButton(Toolbar, "▶ Run", 65)
+local StopButton = MakeButton(Toolbar, "■ Stop", 65)
+local ClearButton = MakeButton(Toolbar, "Clear", 60)
+local SaveButton = MakeButton(Toolbar, "Save", 60)
+local LoadButton = MakeButton(Toolbar, "Load", 60)
+local HubButton = MakeButton(Toolbar, "Hub", 60)
+local SettingsButton = MakeButton(Toolbar, "⚙", 45)
+
+--========================================================
+-- EDITOR
+--========================================================
+
+local EditorPanel = New("Frame", {
+    Position = UDim2.fromOffset(8, 106),
+    Size = UDim2.new(1, -16, 0.49, -2),
+    BackgroundColor3 = C.Editor,
+    BorderSizePixel = 0,
+    ClipsDescendants = true
+}, Main)
+
+AddCorner(EditorPanel, 9)
+AddStroke(EditorPanel, C.Purple, 1, 0.55)
+
+local EditorTab = New("Frame", {
+    Size = UDim2.new(1, 0, 0, 34),
+    BackgroundColor3 = C.Panel,
+    BorderSizePixel = 0
+}, EditorPanel)
+
+local FileLabel = New("TextLabel", {
+    Position = UDim2.fromOffset(12, 0),
+    Size = UDim2.new(0.8, 0, 1, 0),
+    BackgroundTransparency = 1,
+    Text = "● Main.lua",
+    TextColor3 = C.Cyan,
+    Font = Enum.Font.GothamMedium,
+    TextSize = 12,
+    TextXAlignment = Enum.TextXAlignment.Left
+}, EditorTab)
+
+local Editor = New("TextBox", {
+    Name = "CodeEditor",
+    Position = UDim2.fromOffset(10, 40),
+    Size = UDim2.new(1, -20, 1, -49),
+    BackgroundTransparency = 1,
+    TextColor3 = C.Text,
+    PlaceholderColor3 = C.Muted,
+    PlaceholderText = "-- Write Luau here...",
+    Text = [[
+-- UNSHACKLED V2
+
+print("Welcome!")
+
+player_info()
+help()
+]],
+    Font = Enum.Font.Code,
+    TextSize = CONFIG.FontSize,
+    MultiLine = true,
+    ClearTextOnFocus = false,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    TextYAlignment = Enum.TextYAlignment.Top,
+    TextWrapped = false,
+    BorderSizePixel = 0
+}, EditorPanel)
+
+--========================================================
+-- CONSOLE
+--========================================================
+
+local ConsolePanel = New("Frame", {
+    Position = UDim2.new(0, 8, 0.64, 0),
+    Size = UDim2.new(1, -16, 0.25, 0),
+    BackgroundColor3 = C.Panel,
+    BorderSizePixel = 0,
+    ClipsDescendants = true,
+    Visible = CONFIG.ConsoleVisible
+}, Main)
+
+AddCorner(ConsolePanel, 9)
+AddStroke(ConsolePanel, C.Cyan, 0.8, 0.65)
+
+local ConsoleHeader = New("TextLabel", {
+    Position = UDim2.fromOffset(10, 0),
+    Size = UDim2.new(1, -20, 0, 29),
+    BackgroundTransparency = 1,
+    Text = "▸ CONSOLE / OUTPUT",
+    TextColor3 = C.Cyan,
+    Font = Enum.Font.GothamBold,
+    TextSize = 11,
+    TextXAlignment = Enum.TextXAlignment.Left
+}, ConsolePanel)
+
+local LogList = New("ScrollingFrame", {
+    Position = UDim2.fromOffset(8, 30),
+    Size = UDim2.new(1, -16, 1, -36),
+    BackgroundTransparency = 1,
+    BorderSizePixel = 0,
+    ScrollBarThickness = 3,
+    ScrollBarImageColor3 = C.Cyan,
+    AutomaticCanvasSize = Enum.AutomaticSize.Y,
+    CanvasSize = UDim2.new()
+}, ConsolePanel)
+
+local LogLayout = New("UIListLayout", {
+    Padding = UDim.new(0, 3),
+    SortOrder = Enum.SortOrder.LayoutOrder
+}, LogList)
+
+--========================================================
+-- LOG SYSTEM
+--========================================================
+
+local function Log(message, color)
+    local entry = {
+        Text = tostring(message),
+        Time = os.date("%H:%M:%S"),
+    }
+
+    table.insert(State.Logs, entry)
+
+    while #State.Logs > CONFIG.MaxLogs do
+        table.remove(State.Logs, 1)
+    end
+
+    local label = New("TextLabel", {
+        Size = UDim2.new(1, -5, 0, 20),
+        AutomaticSize = Enum.AutomaticSize.Y,
+        BackgroundTransparency = 1,
+        Text = "[" .. entry.Time .. "] " .. entry.Text,
+        TextColor3 = color or C.Text,
+        Font = Enum.Font.Code,
+        TextSize = 11,
+        TextWrapped = true,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextYAlignment = Enum.TextYAlignment.Top
+    }, LogList)
+
+    task.defer(function()
+        if LogList.Parent then
+            LogList.CanvasPosition = Vector2.new(
+                0,
+                LogList.AbsoluteCanvasSize.Y
+            )
+        end
+    end)
+
+    local labels = {}
+
+    for _, child in ipairs(LogList:GetChildren()) do
+        if child:IsA("TextLabel") then
+            table.insert(labels, child)
+        end
+    end
+
+    while #labels > CONFIG.MaxLogs do
+        labels[1]:Destroy()
+        table.remove(labels, 1)
+    end
+end
+
+local function ClearLogs()
+    for _, child in ipairs(LogList:GetChildren()) do
+        if child:IsA("TextLabel") then
+            child:Destroy()
+        end
+    end
+
+    table.clear(State.Logs)
+end
+
+--========================================================
+-- SAFE INTERPRETER
+--========================================================
+
+local function Interpret(line)
+    line = line:match("^%s*(.-)%s*$")
+
+    if line == "" or line:sub(1, 2) == "--" then
+        return true
+    end
+
+    local value = line:match('^print%(%s*"(.*)"%s*%)$')
+        or line:match("^print%(%s*'(.*)'%s*%)$")
+
+    if value ~= nil then
+        Log(value, C.Text)
+        return true
+    end
+
+    value = line:match('^warn%(%s*"(.*)"%s*%)$')
+        or line:match("^warn%(%s*'(.*)'%s*%)$")
+
+    if value ~= nil then
+        Log("[WARN] " .. value, C.Orange)
+        return true
+    end
+
+    if line == "clear()" then
+        ClearLogs()
+        return true
+    end
+
+    if line == "help()" then
+        Log("Supported commands:", C.Cyan)
+        Log('print("text")')
+        Log('warn("text")')
+        Log("player_info()")
+        Log("workspace_info()")
+        Log("help()")
+        Log("clear()")
+        return true
+    end
+
+    if line == "player_info()" then
+        Log("Player: " .. Player.Name, C.Green)
+        Log("UserId: " .. Player.UserId)
+        Log("DisplayName: " .. Player.DisplayName)
+
+        return true
+    end
+
+    if line == "workspace_info()" then
+        Log("Workspace children: " .. #workspace:GetChildren(), C.Green)
+        Log("PlaceId: " .. game.PlaceId)
+        return true
+    end
+
+    return false
+end
+
+--========================================================
+-- EXECUTION
+--========================================================
+
+local function ExecuteCode()
+    if State.Running then
+        Log("Already running", C.Orange)
+        return
+    end
+
+    if os.clock() - State.LastClick < CONFIG.Debounce then
+        return
+    end
+
+    State.LastClick = os.clock()
+    State.Running = true
+    State.Stopped = false
+
+    local source = Editor.Text
+    local lines = {}
+
+    for line in (source .. "\n"):gmatch("(.-)\n") do
+        table.insert(lines, line)
+    end
+
+    local scriptCopy = source
+
+    table.insert(State.History, 1, {
+        Code = scriptCopy,
+        Time = os.date("%H:%M:%S")
+    })
+
+    while #State.History > CONFIG.MaxHistory do
+        table.remove(State.History)
+    end
+
+    Log("Execution started", C.Cyan)
+
+    task.spawn(function()
+        local errors = 0
+
+        for index, line in ipairs(lines) do
+            if State.Stopped or not Screen.Parent then
+                break
+            end
+
+            local ok, result = pcall(Interpret, line)
+
+            if not ok then
+                errors += 1
+                Log("Runtime error at line " .. index .. ": " .. tostring(result), C.Red)
+
+            elseif result == false then
+                errors += 1
+                Log("Unsupported syntax at line " .. index, C.Red)
+            end
+
+            task.wait()
+        end
+
+        if Screen.Parent then
+            if State.Stopped then
+                Log("Execution stopped", C.Orange)
+            elseif errors == 0 then
+                Log("Execution completed", C.Green)
+            else
+                Log("Completed with " .. errors .. " errors", C.Red)
+            end
+        end
+
+        State.Running = false
+    end)
+end
+
+--========================================================
+-- BUTTON EVENTS
+--========================================================
+
+Track(RunButton.MouseButton1Click:Connect(ExecuteCode))
+
+Track(StopButton.MouseButton1Click:Connect(function()
+    State.Stopped = true
+    Log("Stop requested", C.Orange)
+end))
+
+Track(ClearButton.MouseButton1Click:Connect(function()
+    Editor.Text = ""
+    Log("Editor cleared", C.Muted)
+end))
+
+--========================================================
+-- SAVE / LOAD
+--========================================================
+
+local function SaveFile()
+    State.Files[State.CurrentFile] = Editor.Text
+    FileLabel.Text = "● " .. State.CurrentFile
+    Log("Saved: " .. State.CurrentFile, C.Green)
+end
+
+local function LoadFile()
+    local content = State.Files[State.CurrentFile]
+
+    if content then
+        Editor.Text = content
+        Log("Loaded: " .. State.CurrentFile, C.Green)
+    else
+        Log("No saved file found", C.Orange)
+    end
+end
+
+Track(SaveButton.MouseButton1Click:Connect(SaveFile))
+Track(LoadButton.MouseButton1Click:Connect(LoadFile))
+
+--========================================================
+-- HUB WINDOW (LOCAL EXAMPLES)
+--========================================================
+
+local Hub = New("Frame", {
+    Size = UDim2.fromScale(0.82, 0.72),
+    Position = UDim2.fromScale(0.5, 0.5),
+    AnchorPoint = Vector2.new(0.5, 0.5),
+    BackgroundColor3 = C.Panel,
+    BorderSizePixel = 0,
+    Visible = false,
+    ZIndex = 15
+}, Main)
+
+AddCorner(Hub, 12)
+AddStroke(Hub, C.Purple, 1.3, 0.2)
+
+local HubTitle = New("TextLabel", {
+    Position = UDim2.fromOffset(12, 5),
+    Size = UDim2.new(1, -55, 0, 35),
+    BackgroundTransparency = 1,
+    Text = "SCRIPT LIBRARY",
+    TextColor3 = C.Cyan,
+    TextSize = 14,
+    Font = Enum.Font.GothamBold,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    ZIndex = 16
+}, Hub)
+
+local HubClose = MakeButton(Hub, "×", 32)
+HubClose.Position = UDim2.new(1, -40, 0, 5)
+HubClose.ZIndex = 17
+
+local SearchBox = New("TextBox", {
+    Position = UDim2.fromOffset(10, 44),
+    Size = UDim2.new(1, -20, 0, 37),
+    BackgroundColor3 = C.Editor,
+    PlaceholderText = "Search local examples...",
+    PlaceholderColor3 = C.Muted,
+    Text = "",
+    TextColor3 = C.Text,
+    Font = Enum.Font.Gotham,
+    TextSize = 12,
+    ClearTextOnFocus = false,
+    BorderSizePixel = 0,
+    ZIndex = 16
+}, Hub)
+
+AddCorner(SearchBox, 8)
+
+local HubList = New("ScrollingFrame", {
+    Position = UDim2.fromOffset(10, 89),
+    Size = UDim2.new(1, -20, 1, -100),
+    BackgroundTransparency = 1,
+    BorderSizePixel = 0,
+    ScrollBarThickness = 3,
+    ScrollBarImageColor3 = C.Cyan,
+    AutomaticCanvasSize = Enum.AutomaticSize.Y,
+    CanvasSize = UDim2.new(),
+    ZIndex = 16
+}, Hub)
+
+local HubLayout = New("UIListLayout", {
+    Padding = UDim.new(0, 7)
+}, HubList)
+
+local function RefreshHub()
+    for _, child in ipairs(HubList:GetChildren()) do
+        if child:IsA("Frame") then
+            child:Destroy()
+        end
+    end
+
+    local query = string.lower(SearchBox.Text)
+
+    for _, example in ipairs(Examples) do
+        if query == ""
+            or string.find(string.lower(example.Name), query, 1, true)
+            or string.find(string.lower(example.Description), query, 1, true) then
+
+            local item = New("Frame", {
+                Size = UDim2.new(1, -5, 0, 62),
+                BackgroundColor3 = C.Editor,
+                BorderSizePixel = 0,
+                ZIndex = 17
+            }, HubList)
+
+            AddCorner(item, 8)
+
+            New("TextLabel", {
+                Position = UDim2.fromOffset(9, 4),
+                Size = UDim2.new(0.65, 0, 0, 25),
+                BackgroundTransparency = 1,
+                Text = example.Name,
+                TextColor3 = C.Cyan,
+                Font = Enum.Font.GothamBold,
+                TextSize = 12,
+                TextXAlignment = Enum.TextXAlignment.Left,
+                ZIndex = 18
+            }, item)
+
+            New("TextLabel", {
+                Position = UDim2.fromOffset(9, 30),
+                Size = UDim2.new(0.65, 0, 0, 22),
+                BackgroundTransparency = 1,
+                Text = example.Description,
+                TextColor3 = C.Muted,
+                Font = Enum.Font.Gotham,
+                TextSize = 10,
+                TextXAlignment = Enum.TextXAlignment.Left,
+                ZIndex = 18
+            }, item)
+
+            local load = MakeButton(item, "Load", 52)
+            load.Position = UDim2.new(1, -60, 0, 14)
+            load.ZIndex = 19
+
+            load.MouseButton1Click:Connect(function()
+                Editor.Text = example.Code
+                State.CurrentFile = example.Name
+                FileLabel.Text = "● " .. example.Name
+
+                Hub.Visible = false
+                Log("Example loaded: " .. example.Name, C.Green)
+            end)
+        end
+    end
+end
+
+Track(SearchBox:GetPropertyChangedSignal("Text"):Connect(RefreshHub))
+
+Track(HubButton.MouseButton1Click:Connect(function()
+    RefreshHub()
+    Hub.Visible = true
+end))
+
+Track(HubClose.MouseButton1Click:Connect(function()
+    Hub.Visible = false
+end))
+
+--========================================================
+-- SETTINGS WINDOW
+--========================================================
+
+local Settings = New("Frame", {
+    Size = UDim2.fromScale(0.82, 0.72),
+    Position = UDim2.fromScale(0.5, 0.5),
+    AnchorPoint = Vector2.new(0.5, 0.5),
+    BackgroundColor3 = C.Panel,
+    BorderSizePixel = 0,
+    Visible = false,
+    ZIndex = 15
+}, Main)
+
+AddCorner(Settings, 12)
+AddStroke(Settings, C.Cyan, 1.2, 0.25)
+
+local SettingsTitle = New("TextLabel", {
+    Position = UDim2.fromOffset(12, 5),
+    Size = UDim2.new(1, -55, 0, 35),
+    BackgroundTransparency = 1,
+    Text = "SETTINGS",
+    TextColor3 = C.Cyan,
+    TextSize = 14,
+    Font = Enum.Font.GothamBold,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    ZIndex = 16
+}, Settings)
+
+local SettingsClose = MakeButton(Settings, "×", 32)
+SettingsClose.Position = UDim2.new(1, -40, 0, 5)
+SettingsClose.ZIndex = 17
+
+local function SettingButton(text, position)
+    local button = MakeButton(Settings, text, 190)
+    button.Position = position
+    button.ZIndex = 17
+    return button
+end
+
+local FontButton = SettingButton(
+    "Font Size: " .. CONFIG.FontSize,
+    UDim2.fromOffset(12, 52)
+)
+
+local ThemeButton = SettingButton(
+    "Theme: " .. CONFIG.Theme,
+    UDim2.fromOffset(12, 96)
+)
+
+local ConsoleButton = SettingButton(
+    "Console: ON",
+    UDim2.fromOffset(12, 140)
+)
+
+local function ApplyTheme()
+    C = THEME[CONFIG.Theme]
+
+    Main.BackgroundColor3 = C.Background
+    Header.BackgroundColor3 = C.Panel
+    EditorPanel.BackgroundColor3 = C.Editor
+    Editor.TextColor3 = C.Text
+    Editor.TextSize = CONFIG.FontSize
+
+    ConsolePanel.BackgroundColor3 = C.Panel
+    Toolbar.BackgroundColor3 = C.Panel
+
+    Floating.BackgroundColor3 = C.Panel
+    Floating.TextColor3 = C.Cyan
+end
+
+Track(FontButton.MouseButton1Click:Connect(function()
+    CONFIG.FontSize += 1
+
+    if CONFIG.FontSize > 22 then
+        CONFIG.FontSize = 11
+    end
+
+    Editor.TextSize = CONFIG.FontSize
+    FontButton.Text = "Font Size: " .. CONFIG.FontSize
+end))
+
+Track(ThemeButton.MouseButton1Click:Connect(function()
+    CONFIG.Theme = CONFIG.Theme == "Dark" and "Light" or "Dark"
+
+    ApplyTheme()
+    ThemeButton.Text = "Theme: " .. CONFIG.Theme
+
+    Log("Theme changed", C.Cyan)
+end))
+
+Track(ConsoleButton.MouseButton1Click:Connect(function()
+    CONFIG.ConsoleVisible = not CONFIG.ConsoleVisible
+
+    ConsolePanel.Visible = CONFIG.ConsoleVisible
+
+    ConsoleButton.Text = CONFIG.ConsoleVisible
+        and "Console: ON"
+        or "Console: OFF"
+end))
+
+Track(SettingsButton.MouseButton1Click:Connect(function()
+    Settings.Visible = true
+end))
+
+Track(SettingsClose.MouseButton1Click:Connect(function()
+    Settings.Visible = false
+end))
+
+--========================================================
+-- KEYBOARD SHORTCUTS
+--========================================================
+
+Track(UserInputService.InputBegan:Connect(function(input, processed)
+    if processed then
+        if input.KeyCode == Enum.KeyCode.Escape then
+            CloseUI()
+        end
+
+        return
+    end
+
+    local ctrl = UserInputService:IsKeyDown(Enum.KeyCode.LeftControl)
+        or UserInputService:IsKeyDown(Enum.KeyCode.RightControl)
+
+    local cmd = UserInputService:IsKeyDown(Enum.KeyCode.LeftMeta)
+        or UserInputService:IsKeyDown(Enum.KeyCode.RightMeta)
+
+    if ctrl or cmd then
+        if input.KeyCode == Enum.KeyCode.Return then
+            ExecuteCode()
+
+        elseif input.KeyCode == Enum.KeyCode.S then
+            SaveFile()
+        end
+    elseif input.KeyCode == Enum.KeyCode.Escape then
+        if State.Open then
+            CloseUI()
+        else
+            OpenUI()
+        end
+    end
+end))
+
+--========================================================
+-- INITIALIZATION
+--========================================================
+
+State.Files["Main.lua"] = Editor.Text
+
+Log("UNSHACKLED V2 initialized", C.Green)
+Log("Safe development mode enabled", C.Cyan)
+Log("Local example library ready", C.Green)
+
+if CONFIG.MobileDefaultClosed then
+    Main.Visible = false
+    Floating.Visible = true
+else
+    OpenUI()
+end
+
+--========================================================
+-- CLEANUP
+--========================================================
+
+Track(Screen.Destroying:Connect(function()
+    Cleanup()
+end))
+
+print("[UNSHACKLED] V2 loaded successfully")
