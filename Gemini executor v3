@@ -1,7 +1,7 @@
 --[[
-	اسم السكربت: Classic Executor 1000 (Layout Height Fix)
+	اسم السكربت: Classic Executor 1000 (Top DisplayOrder + Name & Script Memory Save)
 	المكان: StarterPlayer > StarterPlayerScripts (LocalScript)
-	الوصف: إصلاح ظهور القائمة بحجم مضغوط تحت الزر بحيث يظهر كامل الإطار الكلاسيكي بوضوح.
+	الوصف: ظهور فوق ScreenGuis، نظام حفظ بالاسم والسكربت مع حفظ ذاكرة، واجهة كلاسيكية للهواتف، وصندوق أخطاء.
 ]]
 
 -- 1. تعريف الخدمات المطلوبة
@@ -222,8 +222,9 @@ for i = 51, 1000 do
 	})
 end
 
--- 3. نظام حفظ محسّن
-local SavedScripts = {
+-- 3. نظام حفظ ذاكرة السكربتات المحفوظة (الاسم + السكربت + حفظ الذاكرة)
+local MEMORY_KEY = "__CLASSIC_EXECUTOR_SAVED_MEMORY_V1"
+local DEFAULT_SAVED = {
 	{
 		Name = "سرعة كلاسيكية (50)",
 		Pinned = true,
@@ -231,6 +232,36 @@ local SavedScripts = {
 if hum then hum.WalkSpeed = 50 end]]
 	}
 }
+
+local function loadSavedMemory()
+	local envStore = (typeof(getgenv) == "function" and getgenv()) or _G
+	if envStore and type(envStore[MEMORY_KEY]) == "string" and envStore[MEMORY_KEY] ~= "" then
+		local ok, decoded = pcall(function()
+			return HttpService:JSONDecode(envStore[MEMORY_KEY])
+		end)
+		if ok and type(decoded) == "table" and #decoded > 0 then
+			return decoded
+		end
+	end
+
+	local attr = LocalPlayer:GetAttribute("ClassicSavedMemory")
+	if type(attr) == "string" and attr ~= "" then
+		local ok, decoded = pcall(function()
+			return HttpService:JSONDecode(attr)
+		end)
+		if ok and type(decoded) == "table" and #decoded > 0 then
+			return decoded
+		end
+	end
+
+	local copy = {}
+	for _, item in ipairs(DEFAULT_SAVED) do
+		table.insert(copy, { Name = item.Name, Pinned = item.Pinned, Code = item.Code })
+	end
+	return copy
+end
+
+local SavedScripts = loadSavedMemory()
 local LastDraftCode = ""
 local LastErrorText = "لا توجد أخطاء مسجلة حالياً."
 
@@ -243,6 +274,22 @@ local function sortSavedScripts()
 	end)
 end
 
+local function persistSavedMemory()
+	sortSavedScripts()
+	local ok, encoded = pcall(function()
+		return HttpService:JSONEncode(SavedScripts)
+	end)
+	if ok and type(encoded) == "string" then
+		local envStore = (typeof(getgenv) == "function" and getgenv()) or _G
+		if envStore then
+			envStore[MEMORY_KEY] = encoded
+		end
+		pcall(function()
+			LocalPlayer:SetAttribute("ClassicSavedMemory", encoded)
+		end)
+	end
+end
+
 local function saveOrUpdateScript(name, code)
 	local cleanName = name and name:match("^%s*(.-)%s*$") or ""
 	if cleanName == "" then
@@ -252,7 +299,7 @@ local function saveOrUpdateScript(name, code)
 	for _, item in ipairs(SavedScripts) do
 		if item.Name == cleanName then
 			item.Code = code
-			sortSavedScripts()
+			persistSavedMemory()
 			return cleanName, true
 		end
 	end
@@ -262,14 +309,17 @@ local function saveOrUpdateScript(name, code)
 		Pinned = false,
 		Code = code
 	})
-	sortSavedScripts()
+	persistSavedMemory()
 	return cleanName, false
 end
 
--- 4. إنشاء ScreenGui والألوان الكلاسيكية الواضحة (بدون RGB)
+persistSavedMemory()
+
+-- 4. إنشاء ScreenGui فوق بقية ScreenGuis والألوان الكلاسيكية الواضحة (بدون RGB)
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "ClassicExecutor1000Gui"
 ScreenGui.ResetOnSpawn = false
+ScreenGui.DisplayOrder = 999999
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 ScreenGui.IgnoreGuiInset = true
 ScreenGui.Parent = PlayerGui
@@ -376,7 +426,7 @@ local function makeDraggable(targetObj, dragHandle, onClickCallback)
 	end)
 end
 
--- 5. زر فتح وإغلاق صغير جداً (36x36) بتصميم كلاسيكي
+-- 5. زر فتح وإغلاق صغير جداً (36x36) بتصميم كلاسيكي فوق بقية الواجهات
 local ToggleBtn = Instance.new("TextButton")
 ToggleBtn.Name = "ClassicMiniToggle"
 ToggleBtn.Size = UDim2.new(0, 36, 0, 36)
@@ -388,7 +438,7 @@ ToggleBtn.TextColor3 = ClassicTheme.Blue
 ToggleBtn.Font = Enum.Font.Code
 ToggleBtn.TextSize = 16
 ToggleBtn.AutoButtonColor = false
-ToggleBtn.ZIndex = 10
+ToggleBtn.ZIndex = 50
 ToggleBtn.Parent = ScreenGui
 sharpCorner(ToggleBtn, 3)
 classicBorder(ToggleBtn, ClassicTheme.Blue, 1)
@@ -396,13 +446,13 @@ classicBorder(ToggleBtn, ClassicTheme.Blue, 1)
 -- 6. القائمة الكلاسيكية الرئيسية بأبعاد واضحة وثابتة
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "ClassicMainFrame"
-MainFrame.Size = UDim2.new(0, 420, 0, 300)
+MainFrame.Size = UDim2.new(0, 420, 0, 305)
 MainFrame.Position = UDim2.new(0, 10, 0, 52)
 MainFrame.BackgroundColor3 = ClassicTheme.Bg
 MainFrame.BackgroundTransparency = 0.04
 MainFrame.Visible = false
 MainFrame.ClipsDescendants = true
-MainFrame.ZIndex = 5
+MainFrame.ZIndex = 20
 MainFrame.Parent = ScreenGui
 sharpCorner(MainFrame, 4)
 classicBorder(MainFrame, ClassicTheme.Border, 1)
@@ -414,7 +464,7 @@ local function getExpandedSize()
 	local cam = workspace.CurrentCamera
 	local vp = cam and cam.ViewportSize or Vector2.new(1024, 600)
 	local width = (vp.X < 540) and math.max(280, vp.X - 24) or 420
-	local height = math.clamp(vp.Y - 64, 240, 305)
+	local height = math.clamp(vp.Y - 64, 250, 310)
 	return UDim2.new(0, width, 0, height)
 end
 
@@ -459,6 +509,7 @@ local DragHeader = Instance.new("Frame")
 DragHeader.Size = UDim2.new(1, -10, 0, 26)
 DragHeader.Position = UDim2.new(0, 5, 0, 5)
 DragHeader.BackgroundColor3 = ClassicTheme.Panel
+DragHeader.ZIndex = 22
 DragHeader.Parent = MainFrame
 sharpCorner(DragHeader, 3)
 classicBorder(DragHeader, ClassicTheme.Border, 1)
@@ -473,6 +524,7 @@ HeaderTitle.Font = Enum.Font.SourceSansBold
 HeaderTitle.TextSize = 12
 HeaderTitle.TextXAlignment = Enum.TextXAlignment.Left
 HeaderTitle.TextTruncate = Enum.TextTruncate.AtEnd
+HeaderTitle.ZIndex = 23
 HeaderTitle.Parent = DragHeader
 
 local CollapseBtn = Instance.new("TextButton")
@@ -480,7 +532,7 @@ CollapseBtn.Name = "CollapseButton"
 CollapseBtn.Size = UDim2.new(0, 24, 0, 20)
 CollapseBtn.Position = UDim2.new(1, -28, 0.5, -10)
 CollapseBtn.Text = "_"
-CollapseBtn.ZIndex = 8
+CollapseBtn.ZIndex = 25
 CollapseBtn.Parent = DragHeader
 styleBtn(CollapseBtn, ClassicTheme.Item, ClassicTheme.BlueHover)
 
@@ -491,6 +543,7 @@ TabsRow = Instance.new("Frame")
 TabsRow.Size = UDim2.new(1, -10, 0, 28)
 TabsRow.Position = UDim2.new(0, 5, 0, 35)
 TabsRow.BackgroundTransparency = 1
+TabsRow.ZIndex = 22
 TabsRow.Parent = MainFrame
 
 local TabsLayout = Instance.new("UIListLayout")
@@ -506,6 +559,7 @@ local function makeTab(label)
 	b.Font = Enum.Font.SourceSansBold
 	b.TextSize = 12
 	b.AutoButtonColor = false
+	b.ZIndex = 23
 	b.Parent = TabsRow
 	sharpCorner(b, 3)
 	return b
@@ -519,6 +573,7 @@ BodyArea = Instance.new("Frame")
 BodyArea.Size = UDim2.new(1, -10, 1, -72)
 BodyArea.Position = UDim2.new(0, 5, 0, 67)
 BodyArea.BackgroundTransparency = 1
+BodyArea.ZIndex = 22
 BodyArea.Parent = MainFrame
 
 -- =========================================================
@@ -527,12 +582,14 @@ BodyArea.Parent = MainFrame
 local ExecPage = Instance.new("Frame")
 ExecPage.Size = UDim2.new(1, 0, 1, 0)
 ExecPage.BackgroundTransparency = 1
+ExecPage.ZIndex = 23
 ExecPage.Parent = BodyArea
 
 local InputBoxFrame = Instance.new("Frame")
 InputBoxFrame.Size = UDim2.new(1, 0, 1, -94)
 InputBoxFrame.Position = UDim2.new(0, 0, 0, 0)
 InputBoxFrame.BackgroundColor3 = ClassicTheme.Panel
+InputBoxFrame.ZIndex = 24
 InputBoxFrame.Parent = ExecPage
 sharpCorner(InputBoxFrame, 3)
 classicBorder(InputBoxFrame, ClassicTheme.Border, 1)
@@ -552,6 +609,7 @@ CodeBox.TextColor3 = ClassicTheme.Text
 CodeBox.PlaceholderText = "-- اكتب الكود هنا أو رابط HttpGet\n-- loadstring(game:HttpGet(\"https://...\"))()"
 CodeBox.PlaceholderColor3 = ClassicTheme.SubText
 CodeBox.Text = ""
+CodeBox.ZIndex = 25
 CodeBox.Parent = InputBoxFrame
 
 CodeBox:GetPropertyChangedSignal("Text"):Connect(function()
@@ -569,6 +627,7 @@ StatusLbl.TextColor3 = ClassicTheme.SubText
 StatusLbl.Font = Enum.Font.SourceSansBold
 StatusLbl.TextSize = 12
 StatusLbl.TextTruncate = Enum.TextTruncate.AtEnd
+StatusLbl.ZIndex = 24
 StatusLbl.Parent = ExecPage
 sharpCorner(StatusLbl, 3)
 classicBorder(StatusLbl, ClassicTheme.Border, 1)
@@ -577,6 +636,7 @@ local RunBtn = Instance.new("TextButton")
 RunBtn.Size = UDim2.new(0.28, -4, 0, 28)
 RunBtn.Position = UDim2.new(0.44, 0, 1, -89)
 RunBtn.Text = "تشغيل"
+RunBtn.ZIndex = 24
 RunBtn.Parent = ExecPage
 styleBtn(RunBtn, ClassicTheme.Blue, ClassicTheme.BlueHover)
 
@@ -584,6 +644,7 @@ local ClearBtn = Instance.new("TextButton")
 ClearBtn.Size = UDim2.new(0.28, -4, 0, 28)
 ClearBtn.Position = UDim2.new(0.72, 4, 1, -89)
 ClearBtn.Text = "مسح"
+ClearBtn.ZIndex = 24
 ClearBtn.Parent = ExecPage
 styleBtn(ClearBtn, ClassicTheme.Item, ClassicTheme.GreenHover)
 
@@ -592,6 +653,7 @@ ErrorPanel.Name = "ErrorDisplayPanel"
 ErrorPanel.Size = UDim2.new(1, 0, 0, 56)
 ErrorPanel.Position = UDim2.new(0, 0, 1, -56)
 ErrorPanel.BackgroundColor3 = ClassicTheme.Panel
+ErrorPanel.ZIndex = 24
 ErrorPanel.Parent = ExecPage
 sharpCorner(ErrorPanel, 3)
 classicBorder(ErrorPanel, ClassicTheme.Red, 1)
@@ -605,6 +667,7 @@ ErrorHeader.TextColor3 = ClassicTheme.RedHover
 ErrorHeader.Font = Enum.Font.SourceSansBold
 ErrorHeader.TextSize = 11
 ErrorHeader.TextXAlignment = Enum.TextXAlignment.Left
+ErrorHeader.ZIndex = 25
 ErrorHeader.Parent = ErrorPanel
 
 local ClearErrBtn = Instance.new("TextButton")
@@ -612,6 +675,7 @@ ClearErrBtn.Size = UDim2.new(0, 52, 0, 16)
 ClearErrBtn.Position = UDim2.new(1, -56, 0, 2)
 ClearErrBtn.Text = "مسح خطأ"
 ClearErrBtn.TextSize = 10
+ClearErrBtn.ZIndex = 25
 ClearErrBtn.Parent = ErrorPanel
 styleBtn(ClearErrBtn, ClassicTheme.Item, ClassicTheme.RedHover)
 
@@ -629,6 +693,7 @@ ErrorBox.Font = Enum.Font.Code
 ErrorBox.TextSize = 11
 ErrorBox.TextColor3 = ClassicTheme.Text
 ErrorBox.Text = LastErrorText
+ErrorBox.ZIndex = 25
 ErrorBox.Parent = ErrorPanel
 
 local function reportError(msg, statusMsg)
@@ -707,57 +772,84 @@ ClearBtn.MouseButton1Click:Connect(function()
 end)
 
 -- =========================================================
--- القسم الثاني: سكربتات محفوظة
+-- القسم الثاني: سكربتات محفوظة (اسم + سكربت + حفظ ذاكرة)
 -- =========================================================
 local SavedPage = Instance.new("Frame")
 SavedPage.Size = UDim2.new(1, 0, 1, 0)
 SavedPage.BackgroundTransparency = 1
 SavedPage.Visible = false
+SavedPage.ZIndex = 23
 SavedPage.Parent = BodyArea
 
-local SaveBar = Instance.new("Frame")
-SaveBar.Size = UDim2.new(1, 0, 0, 28)
-SaveBar.BackgroundTransparency = 1
-SaveBar.Parent = SavedPage
+-- صف الاسم وأزرار الحفظ
+local SaveNameRow = Instance.new("Frame")
+SaveNameRow.Size = UDim2.new(1, 0, 0, 26)
+SaveNameRow.BackgroundTransparency = 1
+SaveNameRow.ZIndex = 24
+SaveNameRow.Parent = SavedPage
 
 local SaveNameBox = Instance.new("TextBox")
-SaveNameBox.Size = UDim2.new(0.48, -4, 1, 0)
+SaveNameBox.Size = UDim2.new(0.50, -4, 1, 0)
 SaveNameBox.BackgroundColor3 = ClassicTheme.Panel
 SaveNameBox.TextColor3 = ClassicTheme.Text
 SaveNameBox.PlaceholderText = "اسم السكربت..."
 SaveNameBox.PlaceholderColor3 = ClassicTheme.SubText
-SaveNameBox.Font = Enum.Font.SourceSans
+SaveNameBox.Font = Enum.Font.SourceSansBold
 SaveNameBox.TextSize = 12
 SaveNameBox.ClearTextOnFocus = false
 SaveNameBox.Text = ""
-SaveNameBox.Parent = SaveBar
+SaveNameBox.ZIndex = 25
+SaveNameBox.Parent = SaveNameRow
 sharpCorner(SaveNameBox, 3)
 classicBorder(SaveNameBox, ClassicTheme.Border, 1)
 
 local SaveBtn = Instance.new("TextButton")
 SaveBtn.Size = UDim2.new(0.17, -3, 1, 0)
-SaveBtn.Position = UDim2.new(0.48, 2, 0, 0)
+SaveBtn.Position = UDim2.new(0.50, 2, 0, 0)
 SaveBtn.Text = "حفظ"
-SaveBtn.Parent = SaveBar
+SaveBtn.ZIndex = 25
+SaveBtn.Parent = SaveNameRow
 styleBtn(SaveBtn, ClassicTheme.Green, ClassicTheme.GreenHover)
 
-local RestoreBtn = Instance.new("TextButton")
-RestoreBtn.Size = UDim2.new(0.17, -3, 1, 0)
-RestoreBtn.Position = UDim2.new(0.65, 2, 0, 0)
-RestoreBtn.Text = "مسودة"
-RestoreBtn.Parent = SaveBar
-styleBtn(RestoreBtn, ClassicTheme.Item, ClassicTheme.BlueHover)
+local FromExecBtn = Instance.new("TextButton")
+FromExecBtn.Size = UDim2.new(0.16, -3, 1, 0)
+FromExecBtn.Position = UDim2.new(0.67, 2, 0, 0)
+FromExecBtn.Text = "من تشغيل"
+FromExecBtn.TextSize = 11
+FromExecBtn.ZIndex = 25
+FromExecBtn.Parent = SaveNameRow
+styleBtn(FromExecBtn, ClassicTheme.Item, ClassicTheme.BlueHover)
 
 local JsonBtn = Instance.new("TextButton")
-JsonBtn.Size = UDim2.new(0.18, 0, 1, 0)
-JsonBtn.Position = UDim2.new(0.82, 0, 0, 0)
+JsonBtn.Size = UDim2.new(0.17, 0, 1, 0)
+JsonBtn.Position = UDim2.new(0.83, 0, 0, 0)
 JsonBtn.Text = "JSON"
-JsonBtn.Parent = SaveBar
+JsonBtn.ZIndex = 25
+JsonBtn.Parent = SaveNameRow
 styleBtn(JsonBtn, ClassicTheme.Amber, ClassicTheme.AmberHover)
 
+-- حقل السكربت المخصص للحفظ أو التعديل مباشرة
+local SaveCodeBox = Instance.new("TextBox")
+SaveCodeBox.Size = UDim2.new(1, 0, 0, 44)
+SaveCodeBox.Position = UDim2.new(0, 0, 0, 29)
+SaveCodeBox.BackgroundColor3 = ClassicTheme.Panel
+SaveCodeBox.TextColor3 = ClassicTheme.Text
+SaveCodeBox.PlaceholderText = "-- اكتب أو الصق كود السكربت هنا ليُحفظ مع الاسم في الذاكرة..."
+SaveCodeBox.PlaceholderColor3 = ClassicTheme.SubText
+SaveCodeBox.Font = Enum.Font.Code
+SaveCodeBox.TextSize = 11
+SaveCodeBox.MultiLine = true
+SaveCodeBox.TextWrapped = true
+SaveCodeBox.ClearTextOnFocus = false
+SaveCodeBox.Text = ""
+SaveCodeBox.ZIndex = 25
+SaveCodeBox.Parent = SavedPage
+sharpCorner(SaveCodeBox, 3)
+classicBorder(SaveCodeBox, ClassicTheme.Border, 1)
+
 local JsonBox = Instance.new("TextBox")
-JsonBox.Size = UDim2.new(1, 0, 0, 52)
-JsonBox.Position = UDim2.new(0, 0, 0, 32)
+JsonBox.Size = UDim2.new(1, 0, 0, 46)
+JsonBox.Position = UDim2.new(0, 0, 0, 76)
 JsonBox.BackgroundColor3 = ClassicTheme.Panel
 JsonBox.TextColor3 = ClassicTheme.Text
 JsonBox.PlaceholderText = "JSON للتصدير أو اللصق ثم اضغط حفظ..."
@@ -769,17 +861,19 @@ JsonBox.TextWrapped = true
 JsonBox.ClearTextOnFocus = false
 JsonBox.Visible = false
 JsonBox.Text = ""
+JsonBox.ZIndex = 26
 JsonBox.Parent = SavedPage
 sharpCorner(JsonBox, 3)
 classicBorder(JsonBox, ClassicTheme.Amber, 1)
 
 local SavedScroll = Instance.new("ScrollingFrame")
-SavedScroll.Size = UDim2.new(1, 0, 1, -34)
-SavedScroll.Position = UDim2.new(0, 0, 0, 34)
+SavedScroll.Size = UDim2.new(1, 0, 1, -78)
+SavedScroll.Position = UDim2.new(0, 0, 0, 78)
 SavedScroll.BackgroundColor3 = ClassicTheme.Panel
 SavedScroll.BackgroundTransparency = 0.1
 SavedScroll.ScrollBarThickness = 4
 SavedScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+SavedScroll.ZIndex = 24
 SavedScroll.Parent = SavedPage
 sharpCorner(SavedScroll, 3)
 classicBorder(SavedScroll, ClassicTheme.Border, 1)
@@ -787,6 +881,16 @@ classicBorder(SavedScroll, ClassicTheme.Border, 1)
 local SavedLayout = Instance.new("UIListLayout")
 SavedLayout.Padding = UDim.new(0, 4)
 SavedLayout.Parent = SavedScroll
+
+local function syncSavedListPosition()
+	if JsonBox.Visible then
+		SavedScroll.Size = UDim2.new(1, 0, 1, -126)
+		SavedScroll.Position = UDim2.new(0, 0, 0, 126)
+	else
+		SavedScroll.Size = UDim2.new(1, 0, 1, -78)
+		SavedScroll.Position = UDim2.new(0, 0, 0, 78)
+	end
+end
 
 local function rebuildSavedList()
 	sortSavedScripts()
@@ -798,16 +902,17 @@ local function rebuildSavedList()
 
 	for idx, entry in ipairs(SavedScripts) do
 		local row = Instance.new("Frame")
-		row.Size = UDim2.new(1, -8, 0, 36)
+		row.Size = UDim2.new(1, -8, 0, 38)
 		row.Position = UDim2.new(0, 4, 0, 0)
 		row.BackgroundColor3 = ClassicTheme.Item
+		row.ZIndex = 25
 		row.Parent = SavedScroll
 		sharpCorner(row, 3)
 
 		local pinPrefix = entry.Pinned and "[مثبّت] " or ""
 		local nameLbl = Instance.new("TextLabel")
-		nameLbl.Size = UDim2.new(0.40, -6, 1, 0)
-		nameLbl.Position = UDim2.new(0, 6, 0, 0)
+		nameLbl.Size = UDim2.new(0.40, -6, 0, 18)
+		nameLbl.Position = UDim2.new(0, 6, 0, 2)
 		nameLbl.BackgroundTransparency = 1
 		nameLbl.Text = pinPrefix .. entry.Name
 		nameLbl.TextColor3 = ClassicTheme.Text
@@ -815,12 +920,27 @@ local function rebuildSavedList()
 		nameLbl.TextSize = 12
 		nameLbl.TextXAlignment = Enum.TextXAlignment.Left
 		nameLbl.TextTruncate = Enum.TextTruncate.AtEnd
+		nameLbl.ZIndex = 26
 		nameLbl.Parent = row
+
+		local previewLbl = Instance.new("TextLabel")
+		previewLbl.Size = UDim2.new(0.40, -6, 0, 15)
+		previewLbl.Position = UDim2.new(0, 6, 0, 20)
+		previewLbl.BackgroundTransparency = 1
+		previewLbl.Text = entry.Code:gsub("%s+", " ")
+		previewLbl.TextColor3 = ClassicTheme.SubText
+		previewLbl.Font = Enum.Font.Code
+		previewLbl.TextSize = 10
+		previewLbl.TextXAlignment = Enum.TextXAlignment.Left
+		previewLbl.TextTruncate = Enum.TextTruncate.AtEnd
+		previewLbl.ZIndex = 26
+		previewLbl.Parent = row
 
 		local pinBtn = Instance.new("TextButton")
 		pinBtn.Size = UDim2.new(0.14, -3, 0, 24)
 		pinBtn.Position = UDim2.new(0.40, 0, 0.5, -12)
 		pinBtn.Text = entry.Pinned and "فك" or "تثبيت"
+		pinBtn.ZIndex = 26
 		pinBtn.Parent = row
 		styleBtn(pinBtn, ClassicTheme.Amber, ClassicTheme.AmberHover)
 
@@ -828,6 +948,7 @@ local function rebuildSavedList()
 		loadBtn.Size = UDim2.new(0.15, -3, 0, 24)
 		loadBtn.Position = UDim2.new(0.54, 2, 0.5, -12)
 		loadBtn.Text = "تحميل"
+		loadBtn.ZIndex = 26
 		loadBtn.Parent = row
 		styleBtn(loadBtn, ClassicTheme.Blue, ClassicTheme.BlueHover)
 
@@ -835,6 +956,7 @@ local function rebuildSavedList()
 		execItemBtn.Size = UDim2.new(0.15, -3, 0, 24)
 		execItemBtn.Position = UDim2.new(0.69, 2, 0.5, -12)
 		execItemBtn.Text = "تشغيل"
+		execItemBtn.ZIndex = 26
 		execItemBtn.Parent = row
 		styleBtn(execItemBtn, ClassicTheme.Green, ClassicTheme.GreenHover)
 
@@ -842,15 +964,19 @@ local function rebuildSavedList()
 		delBtn.Size = UDim2.new(0.15, -2, 0, 24)
 		delBtn.Position = UDim2.new(0.84, 2, 0.5, -12)
 		delBtn.Text = "حذف"
+		delBtn.ZIndex = 26
 		delBtn.Parent = row
 		styleBtn(delBtn, ClassicTheme.Red, ClassicTheme.RedHover)
 
 		pinBtn.MouseButton1Click:Connect(function()
 			entry.Pinned = not entry.Pinned
+			persistSavedMemory()
 			rebuildSavedList()
 		end)
 
 		loadBtn.MouseButton1Click:Connect(function()
+			SaveNameBox.Text = entry.Name
+			SaveCodeBox.Text = entry.Code
 			CodeBox.Text = entry.Code
 			StatusLbl.Text = "تم تحميل: " .. entry.Name
 			StatusLbl.TextColor3 = ClassicTheme.BlueHover
@@ -863,6 +989,7 @@ local function rebuildSavedList()
 
 		delBtn.MouseButton1Click:Connect(function()
 			table.remove(SavedScripts, idx)
+			persistSavedMemory()
 			rebuildSavedList()
 		end)
 	end
@@ -871,6 +998,17 @@ local function rebuildSavedList()
 		SavedScroll.CanvasSize = UDim2.new(0, 0, 0, SavedLayout.AbsoluteContentSize.Y + 8)
 	end)
 end
+
+FromExecBtn.MouseButton1Click:Connect(function()
+	if CodeBox.Text ~= "" then
+		SaveCodeBox.Text = CodeBox.Text
+		StatusLbl.Text = "تم سحب الكود من التشغيل"
+		StatusLbl.TextColor3 = ClassicTheme.BlueHover
+	else
+		StatusLbl.Text = "حقل التشغيل فارغ"
+		StatusLbl.TextColor3 = ClassicTheme.SubText
+	end
+end)
 
 SaveBtn.MouseButton1Click:Connect(function()
 	if JsonBox.Visible and not JsonBox.Text:match("^%s*$") then
@@ -888,10 +1026,9 @@ SaveBtn.MouseButton1Click:Connect(function()
 			if importedCount > 0 then
 				JsonBox.Text = ""
 				JsonBox.Visible = false
-				SavedScroll.Size = UDim2.new(1, 0, 1, -34)
-				SavedScroll.Position = UDim2.new(0, 0, 0, 34)
+				syncSavedListPosition()
 				rebuildSavedList()
-				StatusLbl.Text = "تم استيراد " .. tostring(importedCount)
+				StatusLbl.Text = "تم حفظ " .. tostring(importedCount) .. " في الذاكرة"
 				StatusLbl.TextColor3 = ClassicTheme.GreenHover
 				return
 			end
@@ -900,42 +1037,34 @@ SaveBtn.MouseButton1Click:Connect(function()
 		end
 	end
 
-	local codeVal = CodeBox.Text
+	local codeVal = SaveCodeBox.Text
 	if not codeVal or codeVal:match("^%s*$") then
-		StatusLbl.Text = "لا يوجد كود لحفظه"
+		codeVal = CodeBox.Text
+	end
+
+	if not codeVal or codeVal:match("^%s*$") then
+		StatusLbl.Text = "أدخل الاسم والسكربت أولاً"
 		StatusLbl.TextColor3 = ClassicTheme.RedHover
 		return
 	end
 
 	local finalName, replaced = saveOrUpdateScript(SaveNameBox.Text, codeVal)
 	SaveNameBox.Text = ""
+	SaveCodeBox.Text = ""
 	rebuildSavedList()
-	StatusLbl.Text = replaced and ("تم تحديث: " .. finalName) or ("تم حفظ: " .. finalName)
+	StatusLbl.Text = replaced and ("تم تحديث الذاكرة: " .. finalName) or ("تم حفظ الذاكرة: " .. finalName)
 	StatusLbl.TextColor3 = ClassicTheme.GreenHover
-end)
-
-RestoreBtn.MouseButton1Click:Connect(function()
-	if LastDraftCode ~= "" then
-		CodeBox.Text = LastDraftCode
-		StatusLbl.Text = "تم استرجاع آخر مسودة"
-		StatusLbl.TextColor3 = ClassicTheme.BlueHover
-	else
-		StatusLbl.Text = "لا توجد مسودة سابقة"
-		StatusLbl.TextColor3 = ClassicTheme.SubText
-	end
 end)
 
 JsonBtn.MouseButton1Click:Connect(function()
 	JsonBox.Visible = not JsonBox.Visible
 	if JsonBox.Visible then
 		JsonBox.Text = HttpService:JSONEncode(SavedScripts)
-		SavedScroll.Size = UDim2.new(1, 0, 1, -90)
-		SavedScroll.Position = UDim2.new(0, 0, 0, 90)
-		StatusLbl.Text = "تم توليد JSON"
+		syncSavedListPosition()
+		StatusLbl.Text = "تم عرض ذاكرة JSON"
 		StatusLbl.TextColor3 = ClassicTheme.AmberHover
 	else
-		SavedScroll.Size = UDim2.new(1, 0, 1, -34)
-		SavedScroll.Position = UDim2.new(0, 0, 0, 34)
+		syncSavedListPosition()
 		StatusLbl.Text = "جاهز"
 		StatusLbl.TextColor3 = ClassicTheme.SubText
 	end
@@ -948,6 +1077,7 @@ local LearnPage = Instance.new("Frame")
 LearnPage.Size = UDim2.new(1, 0, 1, 0)
 LearnPage.BackgroundTransparency = 1
 LearnPage.Visible = false
+LearnPage.ZIndex = 23
 LearnPage.Parent = BodyArea
 
 local FilterMode = "ALL"
@@ -955,6 +1085,7 @@ local FilterMode = "ALL"
 local TopLearnBar = Instance.new("Frame")
 TopLearnBar.Size = UDim2.new(1, 0, 0, 26)
 TopLearnBar.BackgroundTransparency = 1
+TopLearnBar.ZIndex = 24
 TopLearnBar.Parent = LearnPage
 
 local SearchBox = Instance.new("TextBox")
@@ -967,6 +1098,7 @@ SearchBox.Font = Enum.Font.SourceSans
 SearchBox.TextSize = 12
 SearchBox.ClearTextOnFocus = false
 SearchBox.Text = ""
+SearchBox.ZIndex = 25
 SearchBox.Parent = TopLearnBar
 sharpCorner(SearchBox, 3)
 classicBorder(SearchBox, ClassicTheme.Border, 1)
@@ -976,6 +1108,7 @@ FilterAllBtn.Size = UDim2.new(0.14, -2, 1, 0)
 FilterAllBtn.Position = UDim2.new(0.56, 1, 0, 0)
 FilterAllBtn.Text = "الكل"
 FilterAllBtn.TextSize = 11
+FilterAllBtn.ZIndex = 25
 FilterAllBtn.Parent = TopLearnBar
 styleBtn(FilterAllBtn, ClassicTheme.Blue, ClassicTheme.BlueHover)
 
@@ -984,7 +1117,8 @@ FilterScriptsBtn.Size = UDim2.new(0.15, -2, 1, 0)
 FilterScriptsBtn.Position = UDim2.new(0.70, 2, 0, 0)
 FilterScriptsBtn.Text = "50 سكربت"
 FilterScriptsBtn.TextSize = 11
-FilterScriptsBtn.Parent = TopLearnBar
+FilterScriptsBtn.ZIndex = 25
+FilterAllBtn.Parent = TopLearnBar
 styleBtn(FilterScriptsBtn, ClassicTheme.Item, ClassicTheme.BlueHover)
 
 local FilterLessonsBtn = Instance.new("TextButton")
@@ -992,6 +1126,7 @@ FilterLessonsBtn.Size = UDim2.new(0.15, -1, 1, 0)
 FilterLessonsBtn.Position = UDim2.new(0.85, 3, 0, 0)
 FilterLessonsBtn.Text = "950 درس"
 FilterLessonsBtn.TextSize = 11
+FilterLessonsBtn.ZIndex = 25
 FilterLessonsBtn.Parent = TopLearnBar
 styleBtn(FilterLessonsBtn, ClassicTheme.Item, ClassicTheme.BlueHover)
 
@@ -1002,6 +1137,7 @@ LearnScroll.BackgroundColor3 = ClassicTheme.Panel
 LearnScroll.BackgroundTransparency = 0.1
 LearnScroll.ScrollBarThickness = 4
 LearnScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+LearnScroll.ZIndex = 24
 LearnScroll.Parent = LearnPage
 sharpCorner(LearnScroll, 3)
 classicBorder(LearnScroll, ClassicTheme.Border, 1)
@@ -1038,6 +1174,7 @@ local function rebuildLearnList(filterText)
 				card.Size = UDim2.new(1, -8, 0, 40)
 				card.Position = UDim2.new(0, 4, 0, 0)
 				card.BackgroundColor3 = ClassicTheme.Item
+				card.ZIndex = 25
 				card.Parent = LearnScroll
 				sharpCorner(card, 3)
 
@@ -1051,6 +1188,7 @@ local function rebuildLearnList(filterText)
 				tLbl.TextSize = 12
 				tLbl.TextXAlignment = Enum.TextXAlignment.Left
 				tLbl.TextTruncate = Enum.TextTruncate.AtEnd
+				tLbl.ZIndex = 26
 				tLbl.Parent = card
 
 				local dLbl = Instance.new("TextLabel")
@@ -1063,12 +1201,14 @@ local function rebuildLearnList(filterText)
 				dLbl.TextSize = 11
 				dLbl.TextXAlignment = Enum.TextXAlignment.Left
 				dLbl.TextTruncate = Enum.TextTruncate.AtEnd
+				dLbl.ZIndex = 26
 				dLbl.Parent = card
 
 				local copyBtn = Instance.new("TextButton")
 				copyBtn.Size = UDim2.new(0.17, -3, 0, 24)
 				copyBtn.Position = UDim2.new(0.63, 0, 0.5, -12)
 				copyBtn.Text = "نسخ"
+				copyBtn.ZIndex = 26
 				copyBtn.Parent = card
 				styleBtn(copyBtn, ClassicTheme.Blue, ClassicTheme.BlueHover)
 
@@ -1076,11 +1216,13 @@ local function rebuildLearnList(filterText)
 				runLearnBtn.Size = UDim2.new(0.18, -2, 0, 24)
 				runLearnBtn.Position = UDim2.new(0.81, 0, 0.5, -12)
 				runLearnBtn.Text = "تشغيل"
+				runLearnBtn.ZIndex = 26
 				runLearnBtn.Parent = card
 				styleBtn(runLearnBtn, ClassicTheme.Green, ClassicTheme.GreenHover)
 
 				copyBtn.MouseButton1Click:Connect(function()
 					CodeBox.Text = item.Code
+					SaveCodeBox.Text = item.Code
 					StatusLbl.Text = "تم نسخ العنصر #" .. tostring(rendered)
 					StatusLbl.TextColor3 = ClassicTheme.BlueHover
 				end)
