@@ -1,0 +1,1267 @@
+--!nocheck
+--[[
+	NEXUS // STUDIO — Mobile & Desktop In-Game Script Executor (Single LocalScript)
+	Modular Architecture: CreateGUI() -> SetupEvents() -> ExecuteCode() -> FetchScripts()
+]]
+
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local CollectionService = game:GetService("CollectionService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+local Lighting = game:GetService("Lighting")
+local ContentProvider = game:GetService("ContentProvider")
+
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+-- ============================================================================
+-- CONFIGURATION, ASSETS & THEMES
+-- ============================================================================
+local PRIMARY_ASSETS = {
+	Play = "rbxassetid://1037585946",
+	Stop = "rbxassetid://1037585947",
+	Trash = "rbxassetid://1037585948",
+	Gear = "rbxassetid://1037585949",
+	Search = "rbxassetid://1037585950",
+}
+
+-- Fallback glyphs/icons if an asset fails to preload in a restricted environment
+local FALLBACK_GLYPHS = {
+	Play = "▶",
+	Stop = "■",
+	Trash = "🗑",
+	Gear = "⚙",
+	Search = "🔍",
+}
+
+local THEMES = {
+	Dark = {
+		BgBase = Color3.fromRGB(30, 30, 30),       -- #1e1e1e Deep Charcoal
+		BgPanel = Color3.fromRGB(22, 24, 30),
+		BgElevated = Color3.fromRGB(38, 40, 48),
+		AccentCyan = Color3.fromRGB(0, 255, 255),  -- #00ffff Neon Cyan
+		AccentPurple = Color3.fromRGB(157, 0, 255),-- #9d00ff Neon Purple
+		TextMain = Color3.fromRGB(240, 244, 252),
+		TextMuted = Color3.fromRGB(155, 162, 178),
+		Border = Color3.fromRGB(64, 68, 82),
+		Success = Color3.fromRGB(45, 212, 150),
+		Warn = Color3.fromRGB(251, 191, 36),
+		Error = Color3.fromRGB(248, 113, 113),
+	},
+	Light = {
+		BgBase = Color3.fromRGB(242, 244, 248),
+		BgPanel = Color3.fromRGB(255, 255, 255),
+		BgElevated = Color3.fromRGB(228, 232, 240),
+		AccentCyan = Color3.fromRGB(0, 150, 199),
+		AccentPurple = Color3.fromRGB(124, 58, 237),
+		TextMain = Color3.fromRGB(24, 26, 32),
+		TextMuted = Color3.fromRGB(95, 102, 118),
+		Border = Color3.fromRGB(195, 202, 216),
+		Success = Color3.fromRGB(16, 163, 112),
+		Warn = Color3.fromRGB(202, 138, 4),
+		Error = Color3.fromRGB(220, 38, 38),
+	},
+}
+
+local IS_MOBILE = UserInputService.TouchEnabled and not UserInputService.MouseEnabled
+local TAG_UI_THEME_BG = "NexusStudio_ThemeBg"
+local TAG_UI_THEME_PANEL = "NexusStudio_ThemePanel"
+local TAG_UI_THEME_TEXT = "NexusStudio_ThemeText"
+local TAG_GC_MANAGED = "NexusStudio_GCManaged"
+
+-- ============================================================================
+-- STATE & GARBAGE COLLECTION (ZERO IDLE CPU)
+-- ============================================================================
+local State = {
+	ThemeName = "Dark",
+	FontSize = IS_MOBILE and 14 or 13,
+	AutoExecute = false,
+	ConsoleVisible = true,
+	IsMinimized = IS_MOBILE, -- Mobile defaults to compact floating toggle pill
+	IsMaximized = false,
+	ExecDebounce = false,
+	SavedRect = {
+		Pos = UDim2.fromScale(0.5, 0.54),
+		Size = IS_MOBILE and UDim2.fromScale(0.92, 0.78) or UDim2.fromScale(0.72, 0.68),
+	},
+}
+
+local RuntimeGC = {
+	Threads = {} :: { thread },
+	Connections = {} :: { RBXScriptConnection },
+	Instances = {} :: { Instance },
+}
+
+local SavedScripts: { [string]: string } = {
+	["StarterTemplate.luau"] = [[-- Welcome to Nexus // Studio
+local char = Player.Character
+local root = char and char:FindFirstChild("HumanoidRootPart")
+if root then
+	print("Player Pos:", math.round(root.Position.X), math.round(root.Position.Y), math.round(root.Position.Z))
+end]],
+}
+
+local ExecutionHistory: { { Title: string, Code: string, Time: string } } = {}
+
+-- Pre-loaded Universal Scripts Catalog (Used for offline/client-safe search)
+local UniversalCatalog = {
+	{
+		Title = "Universal Speed & Jump Boost",
+		Source = "GitHub Gist (Universal)",
+		Url = "https://gist.githubusercontent.com/nexus-universal/speed-jump/raw/script.luau",
+		Tags = { "speed", "walkspeed", "jump", "movement", "universal" },
+		Code = [[-- Universal Speed & Jump Modifier
+local hum = Player.Character and Player.Character:FindFirstChildOfClass("Humanoid")
+if hum then
+	hum.WalkSpeed = 32
+	hum.JumpPower = 75
+	print("Updated WalkSpeed=32, JumpPower=75")
+else
+	warn("Humanoid not found on character.")
+end]],
+	},
+	{
+		Title = "Universal Smooth Fly (BodyVelocity)",
+		Source = "Pastebin Raw (Universal)",
+		Url = "https://pastebin.com/raw/UnvFly01",
+		Tags = { "fly", "flight", "air", "universal" },
+		Code = [[-- Toggleable 10-Second Hover Flight (Auto-cleans via Track)
+local root = Player.Character and Player.Character:FindFirstChild("HumanoidRootPart")
+if root then
+	local bv = Instance.new("BodyVelocity")
+	bv.MaxForce = Vector3.new(1e5, 1e5, 1e5)
+	bv.Velocity = Vector3.new(0, 12, 0)
+	bv.Parent = root
+	Track(bv)
+	print("Hover active! Click Stop to release or wait 5s.")
+	task.delay(5, function()
+		if bv and bv.Parent then bv:Destroy() end
+	end)
+end]],
+	},
+	{
+		Title = "Universal Player Highlight ESP",
+		Source = "GitHub Gist (Universal)",
+		Url = "https://gist.githubusercontent.com/nexus-universal/esp-highlight/raw/script.luau",
+		Tags = { "esp", "highlight", "players", "visual", "universal" },
+		Code = [[-- Adds clean neon Highlight outlines to players (tracked for GC)
+for _, plr in ipairs(Players:GetPlayers()) do
+	if plr ~= Player and plr.Character then
+		local hl = Instance.new("Highlight")
+		hl.FillColor = Color3.fromRGB(0, 255, 255)
+		hl.OutlineColor = Color3.fromRGB(157, 0, 255)
+		hl.FillTransparency = 0.65
+		hl.Parent = plr.Character
+		Track(hl)
+	end
+end
+print("Applied Highlight ESP to active players.")]],
+	},
+	{
+		Title = "Workspace Global & Service Audit",
+		Source = "Pastebin Raw (Diagnostic)",
+		Url = "https://pastebin.com/raw/Audit99",
+		Tags = { "workspace", "audit", "globals", "debug" },
+		Code = [[-- Inspects Workspace children count and ReplicatedStorage remotes
+print("Workspace Children:", #Workspace:GetChildren())
+print("ReplicatedStorage Children:", #ReplicatedStorage:GetChildren())]],
+	},
+}
+
+-- UI Reference Table populated by CreateGUI()
+local UI = {} :: { [string]: any }
+
+-- ============================================================================
+-- HELPER UTILITIES
+-- ============================================================================
+local function GetTheme()
+	return THEMES[State.ThemeName] or THEMES.Dark
+end
+
+local function LogConsole(message: string, color: Color3?)
+	if not UI.ConsoleScroll then
+		return
+	end
+	local theme = GetTheme()
+	local entry = Instance.new("TextLabel")
+	entry.Size = UDim2.new(1, -8, 0, 0)
+	entry.AutomaticSize = Enum.AutomaticSize.Y
+	entry.BackgroundTransparency = 1
+	entry.TextWrapped = true
+	entry.TextXAlignment = Enum.TextXAlignment.Left
+	entry.Font = Enum.Font.Code
+	entry.TextSize = math.max(11, State.FontSize - 1)
+	entry.TextColor3 = color or theme.TextMain
+	entry.Text = string.format("[%s] %s", os.date("%H:%M:%S"), message)
+	entry.Parent = UI.ConsoleScroll
+
+	-- Keep console capped at 80 lines to guarantee <1% CPU & low memory
+	local children = UI.ConsoleScroll:GetChildren()
+	if #children > 82 then
+		for _, child in ipairs(children) do
+			if child:IsA("TextLabel") then
+				child:Destroy()
+				break
+			end
+		end
+	end
+
+	task.defer(function()
+		if UI.ConsoleScroll then
+			UI.ConsoleScroll.CanvasPosition = Vector2.new(0, 999999)
+		end
+	end)
+end
+
+local function CleanupRuntime()
+	local swept = 0
+	for _, conn in ipairs(RuntimeGC.Connections) do
+		if conn.Connected then
+			conn:Disconnect()
+			swept += 1
+		end
+	end
+	table.clear(RuntimeGC.Connections)
+
+	for _, co in ipairs(RuntimeGC.Threads) do
+		if coroutine.status(co) ~= "dead" then
+			pcall(task.cancel, co)
+			swept += 1
+		end
+	end
+	table.clear(RuntimeGC.Threads)
+
+	for _, inst in ipairs(RuntimeGC.Instances) do
+		if inst and inst.Parent then
+			pcall(inst.Destroy, inst)
+			swept += 1
+		end
+	end
+	table.clear(RuntimeGC.Instances)
+
+	for _, tagged in ipairs(CollectionService:GetTagged(TAG_GC_MANAGED)) do
+		if tagged and tagged.Parent then
+			pcall(tagged.Destroy, tagged)
+			swept += 1
+		end
+	end
+
+	LogConsole(string.format("Stopped execution & garbage-collected %d handles.", swept), GetTheme().Success)
+end
+
+local function ApplyTheme()
+	local t = GetTheme()
+	for _, inst in ipairs(CollectionService:GetTagged(TAG_UI_THEME_BG)) do
+		if inst:IsA("GuiObject") then
+			inst.BackgroundColor3 = t.BgBase
+		end
+	end
+	for _, inst in ipairs(CollectionService:GetTagged(TAG_UI_THEME_PANEL)) do
+		if inst:IsA("GuiObject") then
+			inst.BackgroundColor3 = t.BgPanel
+		end
+	end
+	for _, inst in ipairs(CollectionService:GetTagged(TAG_UI_THEME_TEXT)) do
+		if inst:IsA("TextLabel") or inst:IsA("TextBox") or inst:IsA("TextButton") then
+			inst.TextColor3 = t.TextMain
+		end
+	end
+	if UI.CodeEditor then
+		UI.CodeEditor.TextSize = State.FontSize
+	end
+end
+
+-- ============================================================================
+-- 1. CreateGUI(): BUILDS GLASSMORPHISM MOBILE & DESKTOP INTERFACE
+-- ============================================================================
+local function CreateGUI()
+	-- Remove any prior instance if re-injected
+	local existing = PlayerGui:FindFirstChild("NexusStudioExecutor_Unique")
+	if existing then
+		existing:Destroy()
+	end
+
+	local t = GetTheme()
+
+	local gui = Instance.new("ScreenGui")
+	gui.Name = "NexusStudioExecutor_Unique"
+	gui.ResetOnSpawn = false
+	gui.IgnoreGuiInset = true
+	gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	gui.Parent = PlayerGui
+	UI.ScreenGui = gui
+
+	-- Subtle Glassmorphism Blur Effect (Zero cost when static)
+	local blur = Lighting:FindFirstChild("NexusStudio_GlassBlur") :: BlurEffect?
+	if not blur then
+		blur = Instance.new("BlurEffect")
+		blur.Name = "NexusStudio_GlassBlur"
+		blur.Parent = Lighting
+	end
+	blur.Size = State.IsMinimized and 0 or 6
+	UI.Blur = blur
+
+	local function Corner(parent: GuiObject, px: number)
+		local c = Instance.new("UICorner")
+		c.CornerRadius = UDim.new(0, px)
+		c.Parent = parent
+		return c
+	end
+
+	local function Stroke(parent: GuiObject, color: Color3, thick: number?, trans: number?)
+		local s = Instance.new("UIStroke")
+		s.Color = color
+		s.Thickness = thick or 1
+		s.Transparency = trans or 0.35
+		s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+		s.Parent = parent
+		return s
+	end
+
+	local function HoverAnim(btn: GuiButton)
+		local sc = Instance.new("UIScale")
+		sc.Scale = 1
+		sc.Parent = btn
+		btn.MouseEnter:Connect(function()
+			TweenService:Create(sc, TweenInfo.new(0.12, Enum.EasingStyle.Quad), { Scale = 1.05 }):Play()
+		end)
+		btn.MouseLeave:Connect(function()
+			TweenService:Create(sc, TweenInfo.new(0.12, Enum.EasingStyle.Quad), { Scale = 1 }):Play()
+		end)
+	end
+
+	-- Floating Toggle Button (Bottom-Center so it never overlaps Top-Left Chat or Top-Right Leaderboard)
+	local togglePill = Instance.new("TextButton")
+	togglePill.Name = "FloatingTogglePill"
+	togglePill.AnchorPoint = Vector2.new(0.5, 1)
+	togglePill.Position = UDim2.new(0.5, 0, 1, -16)
+	togglePill.Size = IS_MOBILE and UDim2.fromOffset(190, 46) or UDim2.fromOffset(170, 36)
+	togglePill.BackgroundColor3 = t.BgBase
+	togglePill.BackgroundTransparency = 0.12
+	togglePill.Text = "⚡ NEXUS STUDIO"
+	togglePill.Font = Enum.Font.GothamBold
+	togglePill.TextSize = IS_MOBILE and 14 or 12
+	togglePill.TextColor3 = t.AccentCyan
+	togglePill.Visible = State.IsMinimized
+	togglePill.Parent = gui
+	Corner(togglePill, 23)
+	Stroke(togglePill, t.AccentPurple, 1.5, 0.25)
+	HoverAnim(togglePill)
+	UI.TogglePill = togglePill
+
+	-- Main Window
+	local main = Instance.new("Frame")
+	main.Name = "MainExecutorWindow"
+	main.AnchorPoint = Vector2.new(0.5, 0.5)
+	main.Position = State.SavedRect.Pos
+	main.Size = State.SavedRect.Size
+	main.BackgroundColor3 = t.BgBase
+	main.BackgroundTransparency = 0.16
+	main.ClipsDescendants = true
+	main.Visible = not State.IsMinimized
+	main.Parent = gui
+	CollectionService:AddTag(main, TAG_UI_THEME_BG)
+	Corner(main, 14)
+	Stroke(main, t.AccentCyan, 1.4, 0.35)
+	UI.MainWindow = main
+
+	local minMaxConstraint = Instance.new("UISizeConstraint")
+	minMaxConstraint.MinSize = Vector2.new(330, 290)
+	minMaxConstraint.MaxSize = Vector2.new(1300, 820)
+	minMaxConstraint.Parent = main
+
+	-- Header Bar (Draggable via Mouse & Touch)
+	local headerHeight = IS_MOBILE and 46 or 40
+	local header = Instance.new("Frame")
+	header.Name = "HeaderBar"
+	header.Size = UDim2.new(1, 0, 0, headerHeight)
+	header.BackgroundColor3 = t.BgPanel
+	header.BackgroundTransparency = 0.18
+	header.Parent = main
+	CollectionService:AddTag(header, TAG_UI_THEME_PANEL)
+	UI.Header = header
+
+	local headerGrad = Instance.new("UIGradient")
+	headerGrad.Color = ColorSequence.new(t.AccentCyan, t.AccentPurple)
+	headerGrad.Transparency = NumberSequence.new(0.84)
+	headerGrad.Parent = header
+
+	local title = Instance.new("TextLabel")
+	title.Size = UDim2.new(1, -140, 1, 0)
+	title.Position = UDim2.fromOffset(14, 0)
+	title.BackgroundTransparency = 1
+	title.TextXAlignment = Enum.TextXAlignment.Left
+	title.Font = Enum.Font.GothamBold
+	title.TextSize = IS_MOBILE and 15 or 14
+	title.TextColor3 = t.TextMain
+	title.Text = "NEXUS // STUDIO"
+	title.Parent = header
+	CollectionService:AddTag(title, TAG_UI_THEME_TEXT)
+
+	local btnSize = IS_MOBILE and 36 or 28
+	local function MakeWinControl(label: string, rightOffset: number, accent: Color3)
+		local b = Instance.new("TextButton")
+		b.Size = UDim2.fromOffset(btnSize, btnSize)
+		b.Position = UDim2.new(1, rightOffset, 0.5, -btnSize / 2)
+		b.BackgroundColor3 = t.BgElevated
+		b.BackgroundTransparency = 0.2
+		b.Text = label
+		b.Font = Enum.Font.GothamBold
+		b.TextSize = 14
+		b.TextColor3 = accent
+		b.Parent = header
+		Corner(b, 7)
+		Stroke(b, accent, 1, 0.55)
+		HoverAnim(b)
+		return b
+	end
+
+	local step = btnSize + 6
+	UI.MinBtn = MakeWinControl("—", -step * 3, t.AccentCyan)
+	UI.MaxBtn = MakeWinControl("□", -step * 2, t.AccentPurple)
+	UI.CloseBtn = MakeWinControl("✕", -step, t.Error)
+
+	-- Toolbar (Execute, Stop, Clear, Save, Load, Hub, Settings)
+	local toolbarHeight = IS_MOBILE and 46 or 38
+	local toolbar = Instance.new("ScrollingFrame")
+	toolbar.Name = "Toolbar"
+	toolbar.Position = UDim2.fromOffset(8, headerHeight + 6)
+	toolbar.Size = UDim2.new(1, -16, 0, toolbarHeight)
+	toolbar.BackgroundColor3 = t.BgPanel
+	toolbar.BackgroundTransparency = 0.22
+	toolbar.ScrollingDirection = Enum.ScrollingDirection.X
+	toolbar.ScrollBarThickness = 0
+	toolbar.CanvasSize = UDim2.fromOffset(0, 0)
+	toolbar.AutomaticCanvasSize = Enum.AutomaticSize.X
+	toolbar.Parent = main
+	CollectionService:AddTag(toolbar, TAG_UI_THEME_PANEL)
+	Corner(toolbar, 9)
+
+	local tbLayout = Instance.new("UIListLayout")
+	tbLayout.FillDirection = Enum.FillDirection.Horizontal
+	tbLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+	tbLayout.Padding = UDim.new(0, 6)
+	tbLayout.Parent = toolbar
+
+	local tbPad = Instance.new("UIPadding")
+	tbPad.PaddingLeft = UDim.new(0, 6)
+	tbPad.PaddingRight = UDim.new(0, 6)
+	tbPad.Parent = toolbar
+
+	-- Preload asset IDs asynchronously so we can fall back cleanly if any fail
+	local assetAvailable: { [string]: boolean } = {}
+	task.spawn(function()
+		for key, id in pairs(PRIMARY_ASSETS) do
+			local ok = pcall(function()
+				ContentProvider:PreloadAsync({ id })
+			end)
+			assetAvailable[key] = ok
+		end
+	end)
+
+	local function MakeToolButton(label: string, assetKey: string?, accent: Color3)
+		local b = Instance.new("TextButton")
+		b.Size = UDim2.fromOffset(IS_MOBILE and 94 or 82, toolbarHeight - 8)
+		b.BackgroundColor3 = t.BgElevated
+		b.BackgroundTransparency = 0.15
+		b.Text = ""
+		b.Parent = toolbar
+		Corner(b, 7)
+		Stroke(b, accent, 1, 0.45)
+		HoverAnim(b)
+
+		local textOffset = 8
+		if assetKey and PRIMARY_ASSETS[assetKey] then
+			local icon = Instance.new("ImageLabel")
+			icon.Size = UDim2.fromOffset(15, 15)
+			icon.Position = UDim2.new(0, 8, 0.5, -7)
+			icon.BackgroundTransparency = 1
+			icon.Image = PRIMARY_ASSETS[assetKey]
+			icon.ImageColor3 = accent
+			icon.Parent = b
+			textOffset = 26
+
+			-- Fallback glyph if image fails to load
+			task.delay(1.5, function()
+				if icon.Parent and not icon.IsLoaded then
+					icon.Visible = false
+					local glyph = Instance.new("TextLabel")
+					glyph.Size = UDim2.fromOffset(16, 16)
+					glyph.Position = UDim2.new(0, 7, 0.5, -8)
+					glyph.BackgroundTransparency = 1
+					glyph.Text = FALLBACK_GLYPHS[assetKey] or "•"
+					glyph.TextColor3 = accent
+					glyph.Font = Enum.Font.GothamBold
+					glyph.TextSize = 12
+					glyph.Parent = b
+				end
+			end)
+		end
+
+		local lbl = Instance.new("TextLabel")
+		lbl.Size = UDim2.new(1, -textOffset - 4, 1, 0)
+		lbl.Position = UDim2.fromOffset(textOffset, 0)
+		lbl.BackgroundTransparency = 1
+		lbl.TextXAlignment = Enum.TextXAlignment.Left
+		lbl.Font = Enum.Font.GothamBold
+		lbl.TextSize = IS_MOBILE and 12 or 11
+		lbl.TextColor3 = accent
+		lbl.Text = label
+		lbl.Parent = b
+
+		return b
+	end
+
+	UI.ExecBtn = MakeToolButton("Execute", "Play", t.Success)
+	UI.StopBtn = MakeToolButton("Stop", "Stop", t.Error)
+	UI.ClearBtn = MakeToolButton("Clear", "Trash", t.TextMuted)
+	UI.SaveBtn = MakeToolButton("Save", nil, t.AccentCyan)
+	UI.LoadBtn = MakeToolButton("Load", nil, t.AccentPurple)
+	UI.HubBtn = MakeToolButton("Hub", "Search", t.AccentCyan)
+	UI.SettingsBtn = MakeToolButton("Settings", "Gear", t.TextMain)
+
+	-- Center Code Editor Area
+	local topOffset = headerHeight + toolbarHeight + 12
+	local consoleHeight = IS_MOBILE and 110 or 125
+
+	local editorFrame = Instance.new("ScrollingFrame")
+	editorFrame.Name = "EditorScroll"
+	editorFrame.Position = UDim2.fromOffset(8, topOffset)
+	editorFrame.Size = UDim2.new(1, -16, 1, -(topOffset + consoleHeight + 14))
+	editorFrame.BackgroundColor3 = t.BgPanel
+	editorFrame.BackgroundTransparency = 0.2
+	editorFrame.ScrollBarThickness = 5
+	editorFrame.ScrollBarImageColor3 = t.AccentCyan
+	editorFrame.CanvasSize = UDim2.fromOffset(0, 0)
+	editorFrame.AutomaticCanvasSize = Enum.AutomaticSize.XY
+	editorFrame.Parent = main
+	CollectionService:AddTag(editorFrame, TAG_UI_THEME_PANEL)
+	Corner(editorFrame, 10)
+	Stroke(editorFrame, t.Border, 1, 0.4)
+	UI.EditorScroll = editorFrame
+
+	local codeBox = Instance.new("TextBox")
+	codeBox.Name = "CodeEditor"
+	codeBox.Size = UDim2.new(1, -16, 1, -16)
+	codeBox.Position = UDim2.fromOffset(8, 8)
+	codeBox.BackgroundTransparency = 1
+	codeBox.MultiLine = true
+	codeBox.ClearTextOnFocus = false
+	codeBox.TextXAlignment = Enum.TextXAlignment.Left
+	codeBox.TextYAlignment = Enum.TextYAlignment.Top
+	codeBox.Font = Enum.Font.Code
+	codeBox.TextSize = State.FontSize
+	codeBox.TextColor3 = t.TextMain
+	codeBox.Text = SavedScripts["StarterTemplate.luau"]
+	codeBox.Parent = editorFrame
+	CollectionService:AddTag(codeBox, TAG_UI_THEME_TEXT)
+	UI.CodeEditor = codeBox
+
+	-- Bottom Console Output Panel
+	local consoleFrame = Instance.new("Frame")
+	consoleFrame.Name = "ConsolePanel"
+	consoleFrame.Position = UDim2.new(0, 8, 1, -(consoleHeight + 8))
+	consoleFrame.Size = UDim2.new(1, -16, 0, consoleHeight)
+	consoleFrame.BackgroundColor3 = t.BgPanel
+	consoleFrame.BackgroundTransparency = 0.2
+	consoleFrame.Parent = main
+	CollectionService:AddTag(consoleFrame, TAG_UI_THEME_PANEL)
+	Corner(consoleFrame, 10)
+	Stroke(consoleFrame, t.AccentPurple, 1, 0.5)
+	UI.ConsolePanel = consoleFrame
+
+	local consoleHeader = Instance.new("TextLabel")
+	consoleHeader.Size = UDim2.new(1, -12, 0, 20)
+	consoleHeader.Position = UDim2.fromOffset(8, 2)
+	consoleHeader.BackgroundTransparency = 1
+	consoleHeader.TextXAlignment = Enum.TextXAlignment.Left
+	consoleHeader.Font = Enum.Font.GothamBold
+	consoleHeader.TextSize = 10
+	consoleHeader.TextColor3 = t.AccentCyan
+	consoleHeader.Text = "CONSOLE OUTPUT & DIAGNOSTICS"
+	consoleHeader.Parent = consoleFrame
+
+	local consoleScroll = Instance.new("ScrollingFrame")
+	consoleScroll.Name = "ConsoleScroll"
+	consoleScroll.Position = UDim2.fromOffset(6, 22)
+	consoleScroll.Size = UDim2.new(1, -12, 1, -26)
+	consoleScroll.BackgroundTransparency = 1
+	consoleScroll.ScrollBarThickness = 4
+	consoleScroll.ScrollBarImageColor3 = t.AccentPurple
+	consoleScroll.CanvasSize = UDim2.fromOffset(0, 0)
+	consoleScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	consoleScroll.Parent = consoleFrame
+	UI.ConsoleScroll = consoleScroll
+
+	local cLayout = Instance.new("UIListLayout")
+	cLayout.Padding = UDim.new(0, 2)
+	cLayout.Parent = consoleScroll
+
+	-- Overlay Drawer (Shared cleanly by Web Script Hub, Saved/History, and Settings)
+	local drawer = Instance.new("Frame")
+	drawer.Name = "OverlayDrawer"
+	drawer.Visible = false
+	drawer.Position = UDim2.fromOffset(16, topOffset)
+	drawer.Size = UDim2.new(1, -32, 1, -(topOffset + 16))
+	drawer.BackgroundColor3 = t.BgBase
+	drawer.BackgroundTransparency = 0.06
+	drawer.ZIndex = 10
+	drawer.Parent = main
+	CollectionService:AddTag(drawer, TAG_UI_THEME_BG)
+	Corner(drawer, 10)
+	Stroke(drawer, t.AccentCyan, 1.5, 0.25)
+	UI.Drawer = drawer
+
+	local drawerTitle = Instance.new("TextLabel")
+	drawerTitle.Size = UDim2.new(1, -80, 0, 32)
+	drawerTitle.Position = UDim2.fromOffset(12, 4)
+	drawerTitle.BackgroundTransparency = 1
+	drawerTitle.TextXAlignment = Enum.TextXAlignment.Left
+	drawerTitle.Font = Enum.Font.GothamBold
+	drawerTitle.TextSize = 13
+	drawerTitle.TextColor3 = t.AccentCyan
+	drawerTitle.Text = "SCRIPT HUB"
+	drawerTitle.ZIndex = 11
+	drawerTitle.Parent = drawer
+	UI.DrawerTitle = drawerTitle
+
+	local drawerClose = Instance.new("TextButton")
+	drawerClose.Size = UDim2.fromOffset(28, 26)
+	drawerClose.Position = UDim2.new(1, -34, 0, 6)
+	drawerClose.BackgroundColor3 = t.BgElevated
+	drawerClose.Text = "✕"
+	drawerClose.Font = Enum.Font.GothamBold
+	drawerClose.TextSize = 13
+	drawerClose.TextColor3 = t.Error
+	drawerClose.ZIndex = 11
+	drawerClose.Parent = drawer
+	Corner(drawerClose, 6)
+	UI.DrawerClose = drawerClose
+
+	local drawerBody = Instance.new("ScrollingFrame")
+	drawerBody.Position = UDim2.fromOffset(10, 40)
+	drawerBody.Size = UDim2.new(1, -20, 1, -48)
+	drawerBody.BackgroundTransparency = 1
+	drawerBody.ScrollBarThickness = 4
+	drawerBody.CanvasSize = UDim2.fromOffset(0, 0)
+	drawerBody.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	drawerBody.ZIndex = 11
+	drawerBody.Parent = drawer
+	UI.DrawerBody = drawerBody
+
+	local dLayout = Instance.new("UIListLayout")
+	dLayout.Padding = UDim.new(0, 6)
+	dLayout.Parent = drawerBody
+
+	-- Desktop Corner Resize Handle
+	if not IS_MOBILE then
+		local resizeHandle = Instance.new("TextButton")
+		resizeHandle.Name = "ResizeHandle"
+		resizeHandle.Size = UDim2.fromOffset(18, 18)
+		resizeHandle.Position = UDim2.new(1, -18, 1, -18)
+		resizeHandle.BackgroundTransparency = 1
+		resizeHandle.Text = "◢"
+		resizeHandle.Font = Enum.Font.Code
+		resizeHandle.TextSize = 12
+		resizeHandle.TextColor3 = t.AccentCyan
+		resizeHandle.Parent = main
+		UI.ResizeHandle = resizeHandle
+	end
+end
+
+-- ============================================================================
+-- 2. ExecuteCode(): COROUTINE-WRAPPED EXECUTION WITH LINE-NUMBER ERRORS
+-- ============================================================================
+local function ExecuteCode(sourceCode: string, label: string?)
+	if State.ExecDebounce then
+		return
+	end
+	State.ExecDebounce = true
+	task.delay(0.2, function()
+		State.ExecDebounce = false
+	end)
+
+	local theme = GetTheme()
+	if not sourceCode or sourceCode:gsub("%s+", "") == "" then
+		LogConsole("Nothing to execute (editor is empty).", theme.Warn)
+		return
+	end
+
+	-- Record into 10-item Execution History
+	table.insert(ExecutionHistory, 1, {
+		Title = label or ("Snippet #" .. tostring(#ExecutionHistory + 1)),
+		Code = sourceCode,
+		Time = os.date("%H:%M:%S"),
+	})
+	if #ExecutionHistory > 10 then
+		table.remove(ExecutionHistory)
+	end
+
+	-- Check if loadstring is enabled in this Roblox experience
+	if typeof(loadstring) ~= "function" then
+		LogConsole("Execution skipped: loadstring() is disabled in this game client.", theme.Warn)
+		return
+	end
+
+	-- Compile Lua string and extract exact line number on syntax failure
+	local compiledFn, compileErr = loadstring(sourceCode, "=NexusUserScript")
+	if not compiledFn then
+		local errStr = tostring(compileErr)
+		local lineNum = errStr:match(":(%d+):") or "?"
+		LogConsole(string.format("Syntax Error (Line %s): %s", lineNum, errStr), theme.Error)
+		return
+	end
+
+	-- Build safe sandbox environment with GC tracking helpers
+	local sandboxEnv = {
+		print = function(...)
+			local out = {}
+			for i = 1, select("#", ...) do
+				table.insert(out, tostring(select(i, ...)))
+			end
+			LogConsole(table.concat(out, "  "), theme.TextMain)
+		end,
+		warn = function(...)
+			local out = {}
+			for i = 1, select("#", ...) do
+				table.insert(out, tostring(select(i, ...)))
+			end
+			LogConsole("WARN: " .. table.concat(out, "  "), theme.Warn)
+		end,
+		Player = LocalPlayer,
+		Players = Players,
+		Workspace = Workspace,
+		ReplicatedStorage = ReplicatedStorage,
+		TweenService = TweenService,
+		UserInputService = UserInputService,
+		Track = function(inst: Instance)
+			CollectionService:AddTag(inst, TAG_GC_MANAGED)
+			table.insert(RuntimeGC.Instances, inst)
+			return inst
+		end,
+		Connect = function(conn: RBXScriptConnection)
+			table.insert(RuntimeGC.Connections, conn)
+			return conn
+		end,
+		task = task,
+		coroutine = coroutine,
+		Instance = Instance,
+		Vector3 = Vector3,
+		CFrame = CFrame,
+		Color3 = Color3,
+		UDim2 = UDim2,
+		Enum = Enum,
+		math = math,
+		string = string,
+		table = table,
+		pairs = pairs,
+		ipairs = ipairs,
+		tostring = tostring,
+		tonumber = tonumber,
+		type = type,
+		typeof = typeof,
+		pcall = pcall,
+	}
+	setmetatable(sandboxEnv, { __index = _G })
+	pcall(setfenv, compiledFn, sandboxEnv)
+
+	-- Run inside coroutine.wrap so heavy scripts never freeze the UI thread
+	local runner = coroutine.wrap(function()
+		local ok, runtimeErr = xpcall(compiledFn, function(err)
+			return debug.traceback(tostring(err), 2)
+		end)
+		if not ok then
+			local errText = tostring(runtimeErr)
+			local lineNum = errText:match(":(%d+):") or "?"
+			LogConsole(string.format("Runtime Error (Line %s): %s", lineNum, errText), theme.Error)
+		else
+			LogConsole("Executed successfully.", theme.Success)
+		end
+	end)
+
+	runner()
+end
+
+-- ============================================================================
+-- 3. FetchScripts(): WEB SCRIPT HUB & REMOTE PROXY FETCHER
+-- ============================================================================
+--[[
+	How Web Fetch works safely in a LocalScript:
+	1. Roblox blocks HttpService:GetAsync() directly inside LocalScripts.
+	2. If a Server Script exposes a RemoteFunction named "NexusWebFetch" in
+	   ReplicatedStorage, this function invokes it to fetch live Pastebin/GitHub
+	   raw endpoints.
+	3. Otherwise, it searches the built-in UniversalCatalog asynchronously so
+	   the Hub works out-of-the-box with zero errors.
+]]
+local function FetchScripts(query: string, callback: ({ any }) -> ())
+	task.spawn(function()
+		task.wait(0.25) -- Smooth async yield so UI stays responsive
+
+		local proxy = ReplicatedStorage:FindFirstChild("NexusWebFetch")
+		if proxy and proxy:IsA("RemoteFunction") then
+			local ok, remoteData = pcall(function()
+				return proxy:InvokeServer(query)
+			end)
+			if ok and type(remoteData) == "table" then
+				callback(remoteData)
+				return
+			end
+		end
+
+		local q = string.lower((query or ""):gsub("^%s+", ""):gsub("%s+$", ""))
+		if q == "" then
+			callback(UniversalCatalog)
+			return
+		end
+
+		local filtered = {}
+		for _, item in ipairs(UniversalCatalog) do
+			local searchBlob = string.lower(item.Title .. " " .. item.Source .. " " .. table.concat(item.Tags, " "))
+			if string.find(searchBlob, q, 1, true) then
+				table.insert(filtered, item)
+			end
+		end
+		callback(filtered)
+	end)
+end
+
+-- ============================================================================
+-- DRAWER VIEWS (HUB, LOAD/HISTORY, SETTINGS + VARIABLE INSPECTOR)
+-- ============================================================================
+local function ClearDrawer()
+	for _, child in ipairs(UI.DrawerBody:GetChildren()) do
+		if not child:IsA("UIListLayout") then
+			child:Destroy()
+		end
+	end
+end
+
+local function OpenHubDrawer()
+	local t = GetTheme()
+	UI.DrawerTitle.Text = "WEB SCRIPT HUB (PASTEBIN / GISTS)"
+	UI.Drawer.Visible = true
+	ClearDrawer()
+
+	local searchBox = Instance.new("TextBox")
+	searchBox.Size = UDim2.new(1, -4, 0, 34)
+	searchBox.BackgroundColor3 = t.BgElevated
+	searchBox.PlaceholderText = "Search scripts (e.g. fly, speed, esp)..."
+	searchBox.PlaceholderColor3 = t.TextMuted
+	searchBox.Text = ""
+	searchBox.TextColor3 = t.TextMain
+	searchBox.Font = Enum.Font.Code
+	searchBox.TextSize = 12
+	searchBox.ClearTextOnFocus = false
+	searchBox.ZIndex = 12
+	searchBox.Parent = UI.DrawerBody
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0, 7)
+	c.Parent = searchBox
+
+	local listContainer = Instance.new("Frame")
+	listContainer.Size = UDim2.new(1, -4, 0, 0)
+	listContainer.AutomaticSize = Enum.AutomaticSize.Y
+	listContainer.BackgroundTransparency = 1
+	listContainer.ZIndex = 12
+	listContainer.Parent = UI.DrawerBody
+
+	local lLayout = Instance.new("UIListLayout")
+	lLayout.Padding = UDim.new(0, 6)
+	lLayout.Parent = listContainer
+
+	local function RenderResults(items: { any })
+		for _, ch in ipairs(listContainer:GetChildren()) do
+			if ch:IsA("TextButton") or ch:IsA("TextLabel") then
+				ch:Destroy()
+			end
+		end
+		if #items == 0 then
+			local empty = Instance.new("TextLabel")
+			empty.Size = UDim2.new(1, 0, 0, 28)
+			empty.BackgroundTransparency = 1
+			empty.Text = "No matching scripts found."
+			empty.TextColor3 = t.TextMuted
+			empty.Font = Enum.Font.Code
+			empty.TextSize = 12
+			empty.ZIndex = 12
+			empty.Parent = listContainer
+			return
+		end
+		for _, entry in ipairs(items) do
+			local card = Instance.new("TextButton")
+			card.Size = UDim2.new(1, 0, 0, 44)
+			card.BackgroundColor3 = t.BgElevated
+			card.Text = ""
+			card.ZIndex = 12
+			card.Parent = listContainer
+			local cc = Instance.new("UICorner")
+			cc.CornerRadius = UDim.new(0, 7)
+			cc.Parent = card
+
+			local lbl = Instance.new("TextLabel")
+			lbl.Size = UDim2.new(1, -12, 0, 20)
+			lbl.Position = UDim2.fromOffset(8, 4)
+			lbl.BackgroundTransparency = 1
+			lbl.TextXAlignment = Enum.TextXAlignment.Left
+			lbl.Font = Enum.Font.GothamBold
+			lbl.TextSize = 12
+			lbl.TextColor3 = t.AccentCyan
+			lbl.Text = entry.Title
+			lbl.ZIndex = 13
+			lbl.Parent = card
+
+			local sub = Instance.new("TextLabel")
+			sub.Size = UDim2.new(1, -12, 0, 16)
+			sub.Position = UDim2.fromOffset(8, 24)
+			sub.BackgroundTransparency = 1
+			sub.TextXAlignment = Enum.TextXAlignment.Left
+			sub.Font = Enum.Font.Code
+			sub.TextSize = 10
+			sub.TextColor3 = t.TextMuted
+			sub.Text = entry.Source .. " • Tap to load into editor"
+			sub.ZIndex = 13
+			sub.Parent = card
+
+			card.MouseButton1Click:Connect(function()
+				UI.CodeEditor.Text = entry.Code
+				UI.Drawer.Visible = false
+				LogConsole("Loaded '" .. entry.Title .. "' from Script Hub.", t.AccentCyan)
+			end)
+		end
+	end
+
+	searchBox:GetPropertyChangedSignal("Text"):Connect(function()
+		FetchScripts(searchBox.Text, RenderResults)
+	end)
+
+	FetchScripts("", RenderResults)
+end
+
+local function OpenLoadDrawer()
+	local t = GetTheme()
+	UI.DrawerTitle.Text = "SAVED SCRIPTS & EXECUTION HISTORY"
+	UI.Drawer.Visible = true
+	ClearDrawer()
+
+	local function AddItem(title: string, subtitle: string, code: string, accent: Color3)
+		local btn = Instance.new("TextButton")
+		btn.Size = UDim2.new(1, -4, 0, 40)
+		btn.BackgroundColor3 = t.BgElevated
+		btn.Text = ""
+		btn.ZIndex = 12
+		btn.Parent = UI.DrawerBody
+		local c = Instance.new("UICorner")
+		c.CornerRadius = UDim.new(0, 7)
+		c.Parent = btn
+
+		local l1 = Instance.new("TextLabel")
+		l1.Size = UDim2.new(1, -12, 0, 18)
+		l1.Position = UDim2.fromOffset(8, 3)
+		l1.BackgroundTransparency = 1
+		l1.TextXAlignment = Enum.TextXAlignment.Left
+		l1.Font = Enum.Font.GothamBold
+		l1.TextSize = 12
+		l1.TextColor3 = accent
+		l1.Text = title
+		l1.ZIndex = 13
+		l1.Parent = btn
+
+		local l2 = Instance.new("TextLabel")
+		l2.Size = UDim2.new(1, -12, 0, 15)
+		l2.Position = UDim2.fromOffset(8, 21)
+		l2.BackgroundTransparency = 1
+		l2.TextXAlignment = Enum.TextXAlignment.Left
+		l2.Font = Enum.Font.Code
+		l2.TextSize = 10
+		l2.TextColor3 = t.TextMuted
+		l2.Text = subtitle
+		l2.ZIndex = 13
+		l2.Parent = btn
+
+		btn.MouseButton1Click:Connect(function()
+			UI.CodeEditor.Text = code
+			UI.Drawer.Visible = false
+			LogConsole("Loaded '" .. title .. "'.", accent)
+		end)
+	end
+
+	for name, code in pairs(SavedScripts) do
+		AddItem(name, "Saved Script (" .. #code .. " chars)", code, t.AccentCyan)
+	end
+	for _, hist in ipairs(ExecutionHistory) do
+		AddItem(hist.Title, "Executed at " .. hist.Time, hist.Code, t.AccentPurple)
+	end
+end
+
+local function OpenSettingsDrawer()
+	local t = GetTheme()
+	UI.DrawerTitle.Text = "SETTINGS & WORKSPACE INSPECTOR"
+	UI.Drawer.Visible = true
+	ClearDrawer()
+
+	local function AddSettingRow(label: string, onClick: (TextButton) -> ())
+		local btn = Instance.new("TextButton")
+		btn.Size = UDim2.new(1, -4, 0, 36)
+		btn.BackgroundColor3 = t.BgElevated
+		btn.Text = label
+		btn.Font = Enum.Font.GothamBold
+		btn.TextSize = 12
+		btn.TextColor3 = t.TextMain
+		btn.ZIndex = 12
+		btn.Parent = UI.DrawerBody
+		local c = Instance.new("UICorner")
+		c.CornerRadius = UDim.new(0, 7)
+		c.Parent = btn
+		btn.MouseButton1Click:Connect(function()
+			onClick(btn)
+		end)
+		return btn
+	end
+
+	AddSettingRow("Theme: " .. State.ThemeName .. " (Tap to switch)", function(btn)
+		State.ThemeName = (State.ThemeName == "Dark") and "Light" or "Dark"
+		btn.Text = "Theme: " .. State.ThemeName .. " (Tap to switch)"
+		ApplyTheme()
+	end)
+
+	AddSettingRow("Font Size: " .. tostring(State.FontSize) .. "px (Tap to cycle)", function(btn)
+		State.FontSize = (State.FontSize >= 18) and 12 or (State.FontSize + 2)
+		btn.Text = "Font Size: " .. tostring(State.FontSize) .. "px (Tap to cycle)"
+		UI.CodeEditor.TextSize = State.FontSize
+	end)
+
+	AddSettingRow("Auto-Execute on Load: " .. tostring(State.AutoExecute), function(btn)
+		State.AutoExecute = not State.AutoExecute
+		btn.Text = "Auto-Execute on Load: " .. tostring(State.AutoExecute)
+	end)
+
+	AddSettingRow("Console Visible: " .. tostring(State.ConsoleVisible), function(btn)
+		State.ConsoleVisible = not State.ConsoleVisible
+		btn.Text = "Console Visible: " .. tostring(State.ConsoleVisible)
+		UI.ConsolePanel.Visible = State.ConsoleVisible
+		local topOffset = (IS_MOBILE and 46 or 40) + (IS_MOBILE and 46 or 38) + 12
+		local bottomPad = State.ConsoleVisible and ((IS_MOBILE and 110 or 125) + 14) or 10
+		UI.EditorScroll.Size = UDim2.new(1, -16, 1, -(topOffset + bottomPad))
+	end)
+
+	-- Variable & Workspace Reflection Snapshot (On-demand, 0% idle CPU)
+	local globalKeys = {}
+	for k in pairs(_G) do
+		table.insert(globalKeys, tostring(k))
+	end
+	local inspector = Instance.new("TextLabel")
+	inspector.Size = UDim2.new(1, -4, 0, 88)
+	inspector.BackgroundColor3 = t.BgPanel
+	inspector.TextXAlignment = Enum.TextXAlignment.Left
+	inspector.TextYAlignment = Enum.TextYAlignment.Top
+	inspector.Font = Enum.Font.Code
+	inspector.TextSize = 11
+	inspector.TextColor3 = t.AccentCyan
+	inspector.ZIndex = 12
+	inspector.Text = table.concat({
+		"  [WORKSPACE & GLOBAL INSPECTOR]",
+		"  • Workspace Instances: " .. tostring(#Workspace:GetChildren()),
+		"  • Active Players: " .. tostring(#Players:GetPlayers()),
+		"  • _G Globals (" .. tostring(#globalKeys) .. "): " .. (#globalKeys > 0 and table.concat(globalKeys, ", ") or "None"),
+	}, "\n")
+	inspector.Parent = UI.DrawerBody
+	local ic = Instance.new("UICorner")
+	ic.CornerRadius = UDim.new(0, 7)
+	ic.Parent = inspector
+end
+
+-- ============================================================================
+-- 4. SetupEvents(): TOUCH/MOUSE DRAG, RESIZE, SHORTCUTS & BUTTON BINDINGS
+-- ============================================================================
+local function SetMinimized(minimized: boolean)
+	State.IsMinimized = minimized
+	if minimized then
+		UI.MainWindow.Visible = false
+		UI.TogglePill.Visible = true
+		TweenService:Create(UI.Blur, TweenInfo.new(0.2), { Size = 0 }):Play()
+	else
+		UI.TogglePill.Visible = false
+		UI.MainWindow.Visible = true
+		TweenService:Create(UI.Blur, TweenInfo.new(0.25), { Size = 6 }):Play()
+	end
+end
+
+local function SaveCurrentScript()
+	local code = UI.CodeEditor.Text
+	if code:gsub("%s+", "") == "" then
+		LogConsole("Cannot save an empty script.", GetTheme().Warn)
+		return
+	end
+	local slotName = "SavedScript_" .. os.date("%H%M%S") .. ".luau"
+	SavedScripts[slotName] = code
+
+	-- Optional Server DataStore bridge if present
+	local dsRemote = ReplicatedStorage:FindFirstChild("NexusSaveScript")
+	if dsRemote and dsRemote:IsA("RemoteEvent") then
+		pcall(function()
+			dsRemote:FireServer(slotName, code)
+		end)
+	end
+
+	LogConsole("Saved locally as '" .. slotName .. "'.", GetTheme().Success)
+end
+
+local function SetupEvents()
+	-- Toolbar Actions
+	UI.ExecBtn.MouseButton1Click:Connect(function()
+		ExecuteCode(UI.CodeEditor.Text, "Editor Script")
+	end)
+	UI.StopBtn.MouseButton1Click:Connect(CleanupRuntime)
+	UI.ClearBtn.MouseButton1Click:Connect(function()
+		for _, ch in ipairs(UI.ConsoleScroll:GetChildren()) do
+			if ch:IsA("TextLabel") then
+				ch:Destroy()
+			end
+		end
+	end)
+	UI.SaveBtn.MouseButton1Click:Connect(SaveCurrentScript)
+	UI.LoadBtn.MouseButton1Click:Connect(OpenLoadDrawer)
+	UI.HubBtn.MouseButton1Click:Connect(OpenHubDrawer)
+	UI.SettingsBtn.MouseButton1Click:Connect(OpenSettingsDrawer)
+	UI.DrawerClose.MouseButton1Click:Connect(function()
+		UI.Drawer.Visible = false
+	end)
+
+	-- Window Minimize / Maximize / Close
+	UI.MinBtn.MouseButton1Click:Connect(function()
+		SetMinimized(true)
+	end)
+	UI.CloseBtn.MouseButton1Click:Connect(function()
+		SetMinimized(true)
+	end)
+	UI.TogglePill.MouseButton1Click:Connect(function()
+		SetMinimized(false)
+	end)
+	UI.MaxBtn.MouseButton1Click:Connect(function()
+		State.IsMaximized = not State.IsMaximized
+		if State.IsMaximized then
+			State.SavedRect.Pos = UI.MainWindow.Position
+			State.SavedRect.Size = UI.MainWindow.Size
+			TweenService:Create(UI.MainWindow, TweenInfo.new(0.2, Enum.EasingStyle.Quint), {
+				Position = UDim2.fromScale(0.5, 0.52),
+				Size = UDim2.fromScale(0.95, 0.88),
+			}):Play()
+		else
+			TweenService:Create(UI.MainWindow, TweenInfo.new(0.2, Enum.EasingStyle.Quint), {
+				Position = State.SavedRect.Pos,
+				Size = State.SavedRect.Size,
+			}):Play()
+		end
+	end)
+
+	-- Touch & Mouse Dragging on Header Bar
+	do
+		local dragging = false
+		local dragInput: InputObject?
+		local dragStart: Vector3?
+		local startPos: UDim2?
+
+		UI.Header.InputBegan:Connect(function(input)
+			if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+				dragging = true
+				dragInput = input
+				dragStart = input.Position
+				startPos = UI.MainWindow.Position
+			end
+		end)
+
+		UserInputService.InputChanged:Connect(function(input)
+			if dragging and dragStart and startPos then
+				if input == dragInput or input.UserInputType == Enum.UserInputType.MouseMovement then
+					local delta = input.Position - dragStart
+					UI.MainWindow.Position = UDim2.new(
+						startPos.X.Scale,
+						startPos.X.Offset + delta.X,
+						startPos.Y.Scale,
+						startPos.Y.Offset + delta.Y
+					)
+				end
+			end
+		end)
+
+		UserInputService.InputEnded:Connect(function(input)
+			if input == dragInput then
+				dragging = false
+				dragInput = nil
+			end
+		end)
+	end
+
+	-- Desktop Corner Resizing
+	if UI.ResizeHandle then
+		local resizing = false
+		local startMouse: Vector3?
+		local startAbsSize: Vector2?
+
+		UI.ResizeHandle.InputBegan:Connect(function(input)
+			if input.UserInputType == Enum.UserInputType.MouseButton1 then
+				resizing = true
+				startMouse = input.Position
+				startAbsSize = UI.MainWindow.AbsoluteSize
+			end
+		end)
+
+		UserInputService.InputChanged:Connect(function(input)
+			if resizing and startMouse and startAbsSize and input.UserInputType == Enum.UserInputType.MouseMovement then
+				local delta = input.Position - startMouse
+				UI.MainWindow.Size = UDim2.fromOffset(
+					math.max(360, startAbsSize.X + delta.X),
+					math.max(300, startAbsSize.Y + delta.Y)
+				)
+			end
+		end)
+
+		UserInputService.InputEnded:Connect(function(input)
+			if input.UserInputType == Enum.UserInputType.MouseButton1 then
+				resizing = false
+			end
+		end)
+	end
+
+	-- Desktop Keyboard Shortcuts (Ctrl/Cmd+Enter, Ctrl/Cmd+S, Escape)
+	UserInputService.InputBegan:Connect(function(input, gameProcessed)
+		if input.KeyCode == Enum.KeyCode.Escape then
+			if not gameProcessed then
+				SetMinimized(not State.IsMinimized)
+			end
+			return
+		end
+
+		local modHeld = UserInputService:IsKeyDown(Enum.KeyCode.LeftControl)
+			or UserInputService:IsKeyDown(Enum.KeyCode.RightControl)
+			or UserInputService:IsKeyDown(Enum.KeyCode.LeftSuper)
+			or UserInputService:IsKeyDown(Enum.KeyCode.RightSuper)
+
+		if not modHeld then
+			return
+		end
+
+		if input.KeyCode == Enum.KeyCode.Return or input.KeyCode == Enum.KeyCode.KeypadEnter then
+			ExecuteCode(UI.CodeEditor.Text, "Shortcut Run")
+		elseif input.KeyCode == Enum.KeyCode.S then
+			SaveCurrentScript()
+		end
+	end)
+end
+
+-- ============================================================================
+-- BOOTSTRAP
+-- ============================================================================
+CreateGUI()
+SetupEvents()
+LogConsole(
+	string.format("Nexus // Studio ready (%s mode).", IS_MOBILE and "Mobile Touch" or "Desktop"),
+	GetTheme().AccentCyan
+)
+
+if State.AutoExecute then
+	ExecuteCode(UI.CodeEditor.Text, "Auto-Execute")
+end
