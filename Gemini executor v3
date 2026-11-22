@@ -1,7 +1,7 @@
 --[[
-	اسم السكربت: Classic Executor 1000 (Fixed Collapse & Re-open)
+	اسم السكربت: Classic Executor 1000 (Stable Size Fix)
 	المكان: StarterPlayer > StarterPlayerScripts (LocalScript)
-	الوصف: إصلاح مشكلة التصغير وإعادة الفتح، مع واجهة كلاسيكية للهواتف، زر 36x36، صندوق أخطاء، و1000 عنصر تعليمي.
+	الوصف: إصلاح مشكلة تغيّر الحجم أثناء الفتح والطي وإعادة الحجم الطبيعي فور الضغط على زر الفتح/الإغلاق.
 ]]
 
 -- 1. تعريف الخدمات المطلوبة
@@ -391,7 +391,7 @@ ToggleBtn.Parent = ScreenGui
 sharpCorner(ToggleBtn, 3)
 classicBorder(ToggleBtn, ClassicTheme.Blue, 1)
 
--- 6. القائمة الكلاسيكية الرئيسية القابلة للسحب والطي والمحمية من حواف الشاشة
+-- 6. القائمة الكلاسيكية الرئيسية بحجم ثابت ومضبوط دون تغير عشوائي
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "ClassicMainFrame"
 MainFrame.Size = UDim2.new(0, 430, 0, 325)
@@ -406,6 +406,7 @@ classicBorder(MainFrame, ClassicTheme.Border, 1)
 
 local isCollapsed = false
 local isOpen = false
+local activeSizeTween = nil
 
 local function getExpandedSize()
 	local cam = workspace.CurrentCamera
@@ -418,28 +419,43 @@ end
 
 local function getCollapsedSize()
 	local exp = getExpandedSize()
-	return UDim2.new(0, exp.X.Offset, 0, 38)
+	return UDim2.new(0, exp.X.Offset, 0, 36)
 end
 
 local function getActiveTargetSize()
 	return isCollapsed and getCollapsedSize() or getExpandedSize()
 end
 
+local TabsRow
+local BodyArea
+
 local function applyFrameState(animate)
-	local targetSize = getActiveTargetSize()
+	if activeSizeTween then
+		activeSizeTween:Cancel()
+		activeSizeTween = nil
+	end
+
 	if not isOpen then
 		MainFrame.Visible = false
 		return
 	end
 
+	local targetSize = getActiveTargetSize()
 	MainFrame.Visible = true
+	if TabsRow and BodyArea then
+		TabsRow.Visible = not isCollapsed
+		BodyArea.Visible = not isCollapsed
+	end
+
 	if animate then
-		local tw = TweenService:Create(MainFrame, TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-			Size = targetSize
-		})
-		tw:Play()
-		tw.Completed:Connect(function()
-			if isOpen then
+		activeSizeTween = TweenService:Create(
+			MainFrame,
+			TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+			{ Size = targetSize }
+		)
+		activeSizeTween:Play()
+		activeSizeTween.Completed:Connect(function(playbackState)
+			if playbackState == Enum.PlaybackState.Completed and isOpen then
 				MainFrame.Size = getActiveTargetSize()
 				clampToViewport(MainFrame)
 			end
@@ -492,7 +508,7 @@ styleBtn(CollapseBtn, ClassicTheme.Item, ClassicTheme.BlueHover)
 makeDraggable(MainFrame, DragHeader, nil)
 
 -- شريط التبويبات الثلاثة
-local TabsRow = Instance.new("Frame")
+TabsRow = Instance.new("Frame")
 TabsRow.Size = UDim2.new(1, -10, 0, 28)
 TabsRow.Position = UDim2.new(0, 5, 0, 35)
 TabsRow.BackgroundTransparency = 1
@@ -520,7 +536,7 @@ local TabExec = makeTab("تشغيل")
 local TabSaved = makeTab("محفوظة")
 local TabLearn = makeTab("تعليمي (1000)")
 
-local BodyArea = Instance.new("Frame")
+BodyArea = Instance.new("Frame")
 BodyArea.Size = UDim2.new(1, -10, 1, -72)
 BodyArea.Position = UDim2.new(0, 5, 0, 67)
 BodyArea.BackgroundTransparency = 1
@@ -1125,7 +1141,7 @@ FilterLessonsBtn.MouseButton1Click:Connect(function()
 	rebuildLearnList(SearchBox.Text)
 end)
 
--- 7. التبديل بين التبويبات والطي والفتح بدون أي تعليق
+-- 7. التبديل بين التبويبات والطي والفتح بحجم مستقر
 local function selectTab(activeBtn, page)
 	local map = {
 		{ btn = TabExec, p = ExecPage },
@@ -1151,16 +1167,18 @@ TabLearn.MouseButton1Click:Connect(function() selectTab(TabLearn, LearnPage) end
 CollapseBtn.MouseButton1Click:Connect(function()
 	isCollapsed = not isCollapsed
 	CollapseBtn.Text = isCollapsed and "+" or "_"
-	applyFrameState(true)
+	applyFrameState(false)
 end)
 
 local function toggleMenu()
 	isOpen = not isOpen
 	if isOpen then
+		isCollapsed = false
+		CollapseBtn.Text = "_"
 		MainFrame.Position = UDim2.new(0, ToggleBtn.Position.X.Offset, 0, ToggleBtn.Position.Y.Offset + ToggleBtn.Size.Y.Offset + 4)
-		applyFrameState(true)
+		applyFrameState(false)
 	else
-		MainFrame.Visible = false
+		applyFrameState(false)
 	end
 end
 
