@@ -1,0 +1,751 @@
+--!nonstrict
+--==========================================================================
+-- ⚙️ In-Game Executor GUI
+-- ضع هذا السكربت في: StarterPlayer > StarterPlayerScripts
+--==========================================================================
+
+local Players        = game:GetService("Players")
+local TweenService   = game:GetService("TweenService")
+local HttpService    = game:GetService("HttpService")
+local UserInputService = game:GetService("UserInputService")
+local Lighting       = game:GetService("Lighting")
+local RunService     = game:GetService("RunService")
+
+local player     = Players.LocalPlayer
+local playerGui  = player:WaitForChild("PlayerGui")
+local camera     = workspace.CurrentCamera
+
+-- حذف النسخة القديمة
+local old = playerGui:FindFirstChild("ExecutorGui")
+if old then old:Destroy() end
+
+--==========================================================================
+-- 🎨 الثيم
+--==========================================================================
+local C = {
+    bg       = Color3.fromRGB(18, 18, 24),
+    panel    = Color3.fromRGB(28, 28, 36),
+    panelAlt = Color3.fromRGB(36, 36, 46),
+    accent   = Color3.fromRGB(0, 162, 255),
+    hover    = Color3.fromRGB(0, 200, 120),
+    text     = Color3.fromRGB(240, 240, 245),
+    subtext  = Color3.fromRGB(160, 160, 175),
+    border   = Color3.fromRGB(55, 55, 72),
+    danger   = Color3.fromRGB(220, 65, 65),
+    good     = Color3.fromRGB(0, 200, 120),
+}
+
+--==========================================================================
+-- 🛠️ أدوات مساعدة
+--==========================================================================
+local function new(class, props, parent)
+    local i = Instance.new(class)
+    for k, v in pairs(props or {}) do i[k] = v end
+    if parent then i.Parent = parent end
+    return i
+end
+
+local function corner(inst, r) return new("UICorner", {CornerRadius = UDim.new(0, r or 10)}, inst) end
+local function stroke(inst, color, thick) return new("UIStroke", {Color = color or C.border, Thickness = thick or 1}, inst) end
+local function padding(inst, p) 
+    return new("UIPadding", {
+        PaddingTop = UDim.new(0,p), PaddingBottom = UDim.new(0,p),
+        PaddingLeft = UDim.new(0,p), PaddingRight = UDim.new(0,p)
+    }, inst) 
+end
+
+--==========================================================================
+-- 🖼️ Root ScreenGui
+--==========================================================================
+local gui = new("ScreenGui", {
+    Name = "ExecutorGui",
+    ResetOnSpawn = false,
+    IgnoreGuiInset = true,
+    ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+    DisplayOrder = 999,
+}, playerGui)
+
+--==========================================================================
+-- 🍞 Toast (إشعارات)
+--==========================================================================
+local function toast(msg, isError)
+    local t = new("TextLabel", {
+        Size = UDim2.new(0, 280, 0, 44),
+        Position = UDim2.new(0.5, 0, 0, -60),
+        AnchorPoint = UDim2.new(0.5, 0, 0, 0),
+        BackgroundColor3 = isError and C.danger or C.good,
+        BackgroundTransparency = 0.05,
+        TextColor3 = C.text,
+        Font = Enum.Font.GothamBold,
+        TextSize = 14,
+        Text = msg,
+        ZIndex = 50,
+    }, gui)
+    corner(t, 10)
+    stroke(t, Color3.new(1,1,1), 1).Transparency = 0.7
+    TweenService:Create(t, TweenInfo.new(0.3, Enum.EasingStyle.Quart), {
+        Position = UDim2.new(0.5, 0, 0, 20)
+    }):Play()
+    task.delay(2.4, function()
+        local tw = TweenService:Create(t, TweenInfo.new(0.3), {
+            Position = UDim2.new(0.5, 0, 0, -60)
+        })
+        tw:Play()
+        tw.Completed:Connect(function() t:Destroy() end)
+    end)
+end
+
+--==========================================================================
+-- 🔵 زر القائمة (80x80)
+--==========================================================================
+local toggleBtn = new("TextButton", {
+    Name = "ToggleBtn",
+    Size = UDim2.new(0, 80, 0, 80),
+    Position = UDim2.new(1, -20, 0, 20),
+    AnchorPoint = UDim2.new(1, 0, 0, 0),
+    BackgroundColor3 = C.panel,
+    BorderSizePixel = 0,
+    Text = "",
+    AutoButtonColor = false,
+    ZIndex = 20,
+}, gui)
+corner(toggleBtn, 20)
+stroke(toggleBtn, C.border, 2)
+
+-- أيقونة الكود
+local icon = new("TextLabel", {
+    Size = UDim2.fromScale(1, 1),
+    BackgroundTransparency = 1,
+    Text = "</>",
+    TextColor3 = C.accent,
+    Font = Enum.Font.GothamBold,
+    TextSize = 26,
+    ZIndex = 21,
+}, toggleBtn)
+
+--==========================================================================
+-- 📋 حساب أبعاد القائمة
+--==========================================================================
+local function getMenuSize()
+    local vp = camera.ViewportSize
+    local w = math.min(360, vp.X - 40)
+    local h = math.min(520, vp.Y - 130)
+    return w, h
+end
+
+--==========================================================================
+-- 🪟 نافذة القائمة (CanvasGroup)
+--==========================================================================
+local menu = new("CanvasGroup", {
+    Name = "Menu",
+    BackgroundColor3 = C.bg,
+    BackgroundTransparency = 0.05,
+    BorderSizePixel = 0,
+    GroupTransparency = 1,
+    Visible = false,
+    ZIndex = 15,
+}, gui)
+corner(menu, 14)
+stroke(menu, C.border, 1)
+local menuW, menuH = getMenuSize()
+menu.Size = UDim2.new(0, menuW, 0, menuH)
+menu.Position = UDim2.new(1, -20, 0, 110)
+menu.AnchorPoint = UDim2.new(1, 0, 0, 0)
+
+--==========================================================================
+-- 🏷️ الهيدر
+--==========================================================================
+local header = new("Frame", {
+    Size = UDim2.new(1, 0, 0, 50),
+    BackgroundTransparency = 1,
+    ZIndex = 16,
+}, menu)
+
+new("TextLabel", {
+    Size = UDim2.new(1, -100, 1, 0),
+    Position = UDim2.new(0, 16, 0, 0),
+    BackgroundTransparency = 1,
+    Text = "Executor",
+    TextColor3 = C.text,
+    Font = Enum.Font.GothamBold,
+    TextSize = 20,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    ZIndex = 17,
+}, header)
+
+local closeBtn = new("TextButton", {
+    Size = UDim2.new(0, 32, 0, 32),
+    Position = UDim2.new(1, -16, 0.5, 0),
+    AnchorPoint = UDim2.new(1, 0, 0.5, 0),
+    BackgroundColor3 = C.panelAlt,
+    Text = "✕",
+    TextColor3 = C.text,
+    Font = Enum.Font.GothamBold,
+    TextSize = 16,
+    AutoButtonColor = false,
+    ZIndex = 17,
+}, header)
+corner(closeBtn, 8)
+
+new("Frame", {
+    Size = UDim2.new(1, 0, 0, 1),
+    Position = UDim2.new(0, 0, 0, 50),
+    BackgroundColor3 = C.border,
+    BorderSizePixel = 0,
+    ZIndex = 16,
+}, menu)
+
+--==========================================================================
+-- 📑 شريط التبويبات
+--==========================================================================
+local tabBar = new("Frame", {
+    Size = UDim2.new(1, -32, 0, 40),
+    Position = UDim2.new(0, 16, 0, 60),
+    BackgroundColor3 = C.panelAlt,
+    BorderSizePixel = 0,
+    ZIndex = 16,
+}, menu)
+corner(tabBar, 10)
+padding(tabBar, 4)
+
+local tabLayout = new("UIListLayout", {
+    FillDirection = Enum.FillDirection.Horizontal,
+    SortOrder = Enum.SortOrder.LayoutOrder,
+    Padding = UDim.new(0, 4),
+}, tabBar)
+
+local tabInfo = {
+    {name = "تشغيل",    key = "Execute"},
+    {name = "محفوظات", key = "Saved"},
+    {name = "تعليمي",   key = "Learn"},
+}
+
+local tabs = {}
+local contents = {}
+
+for i, info in ipairs(tabInfo) do
+    local btn = new("TextButton", {
+        Size = UDim2.new(1/3, -4, 1, 0),
+        BackgroundColor3 = i == 1 and C.accent or C.panelAlt,
+        Text = info.name,
+        TextColor3 = C.text,
+        Font = Enum.Font.GothamBold,
+        TextSize = 13,
+        AutoButtonColor = false,
+        LayoutOrder = i,
+        ZIndex = 17,
+    }, tabBar)
+    corner(btn, 7)
+    tabs[info.key] = btn
+end
+
+--==========================================================================
+-- 📦 حاوية المحتوى
+--==========================================================================
+local contentFrame = new("Frame", {
+    Size = UDim2.new(1, -32, 1, -120),
+    Position = UDim2.new(0, 16, 0, 110),
+    BackgroundTransparency = 1,
+    ZIndex = 16,
+}, menu)
+
+--==========================================================================
+-- 🧩 دالة تبديل التبويبات
+--==========================================================================
+local function switchTab(key)
+    for k, btn in pairs(tabs) do
+        btn.BackgroundColor3 = (k == key) and C.accent or C.panelAlt
+    end
+    for k, f in pairs(contents) do
+        f.Visible = (k == key)
+    end
+end
+
+--==========================================================================
+-- ============================================================
+-- 🧩 التبويب 1: تشغيل (Execute)
+-- ============================================================
+--==========================================================================
+local executeTab = new("Frame", {
+    Name = "ExecuteTab",
+    Size = UDim2.fromScale(1, 1),
+    BackgroundTransparency = 1,
+    ZIndex = 16,
+}, contentFrame)
+contents["Execute"] = executeTab
+
+local codeBox = new("TextBox", {
+    Size = UDim2.new(1, 0, 1, -50),
+    BackgroundColor3 = C.panel,
+    BorderSizePixel = 0,
+    Text = "",
+    PlaceholderText = "-- اكتب الكود هنا...\nprint('Hello, Roblox!')",
+    PlaceholderColor3 = C.subtext,
+    TextColor3 = C.text,
+    Font = Enum.Font.Code,
+    TextSize = 13,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    TextYAlignment = Enum.TextYAlignment.Top,
+    MultiLine = true,
+    ClearTextOnFocus = false,
+    ZIndex = 17,
+}, executeTab)
+corner(codeBox, 10)
+stroke(codeBox, C.border, 1)
+padding(codeBox, 10)
+
+local execBtn = new("TextButton", {
+    Size = UDim2.new(0.5, -4, 0, 38),
+    Position = UDim2.new(0, 0, 1, -42),
+    BackgroundColor3 = C.good,
+    Text = "▶  تشغيل",
+    TextColor3 = C.text,
+    Font = Enum.Font.GothamBold,
+    TextSize = 14,
+    AutoButtonColor = false,
+    ZIndex = 17,
+}, executeTab)
+corner(execBtn, 8)
+
+local clearBtn = new("TextButton", {
+    Size = UDim2.new(0.5, -4, 0, 38),
+    Position = UDim2.new(0.5, 4, 1, -42),
+    BackgroundColor3 = C.panelAlt,
+    Text = "🗑  مسح",
+    TextColor3 = C.text,
+    Font = Enum.Font.GothamBold,
+    TextSize = 14,
+    AutoButtonColor = false,
+    ZIndex = 17,
+}, executeTab)
+corner(clearBtn, 8)
+
+--==========================================================================
+-- ============================================================
+-- 🧩 التبويب 2: محفوظات (Saved)
+-- ============================================================
+--==========================================================================
+local savedTab = new("Frame", {
+    Name = "SavedTab",
+    Size = UDim2.fromScale(1, 1),
+    BackgroundTransparency = 1,
+    Visible = false,
+    ZIndex = 16,
+}, contentFrame)
+contents["Saved"] = savedTab
+
+local saveBtn = new("TextButton", {
+    Size = UDim2.new(1, 0, 0, 38),
+    BackgroundColor3 = C.accent,
+    Text = "💾  حفظ الكود الحالي",
+    TextColor3 = C.text,
+    Font = Enum.Font.GothamBold,
+    TextSize = 14,
+    AutoButtonColor = false,
+    ZIndex = 17,
+}, savedTab)
+corner(saveBtn, 8)
+
+local savedScroll = new("ScrollingFrame", {
+    Size = UDim2.new(1, 0, 1, -46),
+    Position = UDim2.new(0, 0, 0, 46),
+    BackgroundColor3 = C.panel,
+    BorderSizePixel = 0,
+    CanvasSize = UDim2.new(0, 0, 0, 0),
+    ScrollBarThickness = 4,
+    ScrollBarImageColor3 = C.accent,
+    ZIndex = 16,
+}, savedTab)
+corner(savedScroll, 10)
+stroke(savedScroll, C.border, 1)
+padding(savedScroll, 6)
+
+new("UIListLayout", {
+    Padding = UDim.new(0, 6),
+    SortOrder = Enum.SortOrder.LayoutOrder,
+}, savedScroll)
+
+new("UIPadding", {
+    PaddingTop = UDim.new(0, 4), PaddingBottom = UDim.new(0, 4),
+    PaddingLeft = UDim.new(0, 4), PaddingRight = UDim.new(0, 4),
+}, savedScroll)
+
+--==========================================================================
+-- ============================================================
+-- 🧩 التبويب 3: تعليمي (Learn) — 20 سكربت
+-- ============================================================
+--==========================================================================
+local learnTab = new("Frame", {
+    Name = "LearnTab",
+    Size = UDim2.fromScale(1, 1),
+    BackgroundTransparency = 1,
+    Visible = false,
+    ZIndex = 16,
+}, contentFrame)
+contents["Learn"] = learnTab
+
+local learnScroll = new("ScrollingFrame", {
+    Size = UDim2.fromScale(1, 1),
+    BackgroundColor3 = C.panel,
+    BorderSizePixel = 0,
+    CanvasSize = UDim2.new(0, 0, 0, 0),
+    ScrollBarThickness = 4,
+    ScrollBarImageColor3 = C.accent,
+    ZIndex = 16,
+}, learnTab)
+corner(learnScroll, 10)
+stroke(learnScroll, C.border, 1)
+padding(learnScroll, 6)
+
+new("UIListLayout", {
+    Padding = UDim.new(0, 6),
+    SortOrder = Enum.SortOrder.LayoutOrder,
+}, learnScroll)
+
+--==========================================================================
+-- 📚 مصفوفة الـ 20 سكربت تعليمي
+--==========================================================================
+local learnScripts = {
+    {
+        title = "1. تغيير سرعة المشي",
+        code  = "local p = game.Players.LocalPlayer\nlocal h = p.Character:WaitForChild('Humanoid')\nh.WalkSpeed = 50"
+    },
+    {
+        title = "2. تغيير قوة القفز",
+        code  = "local p = game.Players.LocalPlayer\nlocal h = p.Character:WaitForChild('Humanoid')\nh.UseJumpPower = true\nh.JumpPower = 100"
+    },
+    {
+        title = "3. جعل اللاعب يطير (Fly)",
+        code  = "local p = game.Players.LocalPlayer\nlocal hrp = p.Character:WaitForChild('HumanoidRootPart')\nlocal bv = Instance.new('BodyVelocity', hrp)\nbv.MaxForce = Vector3.new(1e5,1e5,1e5)\nbv.Velocity = Vector3.zero\nlocal uis = game:GetService('UserInputService')\nuis.InputBegan:Connect(function(i)\n  if i.KeyCode == Enum.KeyCode.Space then bv.Velocity = Vector3.new(0,60,0) end\nend)\nuis.InputEnded:Connect(function(i)\n  if i.KeyCode == Enum.KeyCode.Space then bv.Velocity = Vector3.zero end\nend)"
+    },
+    {
+        title = "4. تغيير لون الشخصية",
+        code  = "local p = game.Players.LocalPlayer\nlocal bc = p.Character:FindFirstChildOfClass('BodyColors')\nif bc then\n  bc.HeadColor = BrickColor.random()\n  bc.TorsoColor = BrickColor.random()\n  bc.LeftArmColor = BrickColor.random()\n  bc.RightArmColor = BrickColor.random()\n  bc.LeftLegColor = BrickColor.random()\n  bc.RightLegColor = BrickColor.random()\nend"
+    },
+    {
+        title = "5. إظهار الاسم فوق الرأس",
+        code  = "local p = game.Players.LocalPlayer\nlocal head = p.Character:WaitForChild('Head')\nlocal bg = Instance.new('BillboardGui', head)\nbg.Size = UDim2.new(0,200,0,50)\nbg.StudsOffset = Vector3.new(0,2,0)\nbg.AlwaysOnTop = true\nlocal l = Instance.new('TextLabel', bg)\nl.Size = UDim2.fromScale(1,1)\nl.BackgroundTransparency = 1\nl.Text = p.Name\nl.TextColor3 = Color3.new(1,1,1)\nl.TextStrokeTransparency = 0\nl.TextScaled = true\nl.Font = Enum.Font.GothamBold"
+    },
+    {
+        title = "6. إضاءة كاملة (Fullbright)",
+        code  = "local l = game:GetService('Lighting')\nl.Brightness = 3\nl.ClockTime = 14\nl.Ambient = Color3.fromRGB(180,180,180)\nl.OutdoorAmbient = Color3.fromRGB(180,180,180)\nl.GlobalShadows = false"
+    },
+    {
+        title = "7. تغيير الجاذبية",
+        code  = "workspace.Gravity = 50  -- الأرضية أقل من الافتراضي (196)"
+    },
+    {
+        title = "8. تغيير الوقت",
+        code  = "game:GetService('Lighting').ClockTime = 12  -- 0..24"
+    },
+    {
+        title = "9. تغيير FOV الكاميرا",
+        code  = "workspace.CurrentCamera.FieldOfView = 90"
+    },
+    {
+        title = "10. إخفاء الشخصية",
+        code  = "for _,v in ipairs(game.Players.LocalPlayer.Character:GetDescendants()) do\n  if v:IsA('BasePart') then v.Transparency = 1 end\nend"
+    },
+    {
+        title = "11. إعادة تعيين الشخصية",
+        code  = "game.Players.LocalPlayer.Character:WaitForChild('Humanoid').Health = 0"
+    },
+    {
+        title = "12. طباعة في الكونسول",
+        code  = "print('Hello, Executor! 👋')\nwarn('هذا تحذير')\nprint('اللاعب:', game.Players.LocalPlayer.Name)"
+    },
+    {
+        title = "13. تشغيل صوت",
+        code  = "local s = Instance.new('Sound')\ns.SoundId = 'rbxassetid://9046900890'\ns.Volume = 1\ns.Parent = workspace.CurrentCamera\ns:Play()"
+    },
+    {
+        title = "14. تغيير لون السماء",
+        code  = "local sky = Instance.new('Sky')\nsky.SkyboxBk = 'rbxassetid://159454299'\nsky.SkyboxDn = 'rbxassetid://159454296'\nsky.SkyboxFt = 'rbxassetid://159454293'\nsky.SkyboxLf = 'rbxassetid://159454286'\nsky.SkyboxRt = 'rbxassetid://159454300'\nsky.SkyboxUp = 'rbxassetid://159454288'\nsky.Parent = game:GetService('Lighting')"
+    },
+    {
+        title = "15. إظهار/إخفاء الماوس",
+        code  = "game:GetService('UserInputService').MouseIconEnabled = true  -- false لإخفائه"
+    },
+    {
+        title = "16. جعل اللاعب صغيرًا",
+        code  = "local p = game.Players.LocalPlayer\nlocal h = p.Character:WaitForChild('Humanoid')\nh.BodyHeightScale = 0.5\nh.BodyWidthScale = 0.5\nh.HeadScale = 0.5"
+    },
+    {
+        title = "17. جعل اللاعب عملاقًا",
+        code  = "local p = game.Players.LocalPlayer\nlocal h = p.Character:WaitForChild('Humanoid')\nh.BodyHeightScale = 2\nh.BodyWidthScale = 2\nh.HeadScale = 2"
+    },
+    {
+        title = "18. فلتر ألوان (ColorCorrection)",
+        code  = "local cc = Instance.new('ColorCorrectionEffect', game:GetService('Lighting'))\ncc.TintColor = Color3.fromRGB(255,180,180)\ncc.Saturation = 0.6\ncc.Contrast = 0.1"
+    },
+    {
+        title = "19. تشغيل موسيقى في الخلفية",
+        code  = "local s = Instance.new('Sound')\ns.SoundId = 'rbxassetid://1845960023'\ns.Volume = 0.4\ns.Looped = true\ns.Parent = game:GetService('SoundService')\ns:Play()"
+    },
+    {
+        title = "20. سحب ورمي الأجسام (Drag)",
+        code  = "local uis = game:GetService('UserInputService')\nlocal mouse = game.Players.LocalPlayer:GetMouse()\nmouse.Button1Down:Connect(function()\n  local t = mouse.Target\n  if t and t:IsA('BasePart') and not t.Anchored then\n    local bp = Instance.new('BodyPosition', t)\n    bp.MaxForce = Vector3.new(1e5,1e5,1e5)\n    bp.Position = t.Position\n    local c\n    c = game:GetService('RunService').Heartbeat:Connect(function()\n      if not bp.Parent then c:Disconnect() return end\n      bp.Position = mouse.Hit.Position\n    end)\n    mouse.Button1Up:Connect(function() bp:Destroy() end)\n  end\nend)"
+    },
+}
+
+--==========================================================================
+-- 🧱 بناء قائمة السكربتات التعليمية
+--==========================================================================
+local function makeCopyBtn(parent, scriptCode)
+    local btn = new("TextButton", {
+        Size = UDim2.new(0, 70, 0, 30),
+        Position = UDim2.new(1, -6, 0.5, 0),
+        AnchorPoint = UDim2.new(1, 0, 0.5, 0),
+        BackgroundColor3 = C.accent,
+        Text = "نسخ",
+        TextColor3 = C.text,
+        Font = Enum.Font.GothamBold,
+        TextSize = 12,
+        AutoButtonColor = false,
+        ZIndex = 18,
+    }, parent)
+    corner(btn, 6)
+    btn.MouseButton1Click:Connect(function()
+        codeBox.Text = scriptCode
+        switchTab("Execute")
+        toast("تم نسخ السكربت ✅")
+    end)
+    return btn
+end
+
+for i, s in ipairs(learnScripts) do
+    local item = new("Frame", {
+        Size = UDim2.new(1, 0, 0, 40),
+        BackgroundColor3 = C.panelAlt,
+        BorderSizePixel = 0,
+        LayoutOrder = i,
+        ZIndex = 17,
+    }, learnScroll)
+    corner(item, 8)
+
+    new("TextLabel", {
+        Size = UDim2.new(1, -90, 1, 0),
+        Position = UDim2.new(0, 10, 0, 0),
+        BackgroundTransparency = 1,
+        Text = s.title,
+        TextColor3 = C.text,
+        Font = Enum.Font.Gotham,
+        TextSize = 13,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextTruncate = Enum.TextTruncate.AtEnd,
+        ZIndex = 18,
+    }, item)
+
+    makeCopyBtn(item, s.code)
+end
+
+--==========================================================================
+-- 💾 نظام الحفظ (in-memory)
+--==========================================================================
+local savedScripts = {}
+local savedItemCounter = 0
+
+local function refreshSavedList()
+    for _, child in ipairs(savedScroll:GetChildren()) do
+        if child:IsA("Frame") then child:Destroy() end
+    end
+
+    if #savedScripts == 0 then
+        local empty = new("TextLabel", {
+            Size = UDim2.new(1, 0, 0, 60),
+            BackgroundTransparency = 1,
+            Text = "لا توجد سكربتات محفوظة بعد.\nاضغط على زر (حفظ) لحفظ الكود الحالي.",
+            TextColor3 = C.subtext,
+            Font = Enum.Font.Gotham,
+            TextSize = 13,
+            TextWrapped = true,
+            LayoutOrder = 1,
+            ZIndex = 17,
+        }, savedScroll)
+        return
+    end
+
+    for i, entry in ipairs(savedScripts) do
+        local item = new("Frame", {
+            Size = UDim2.new(1, 0, 0, 52),
+            BackgroundColor3 = C.panelAlt,
+            BorderSizePixel = 0,
+            LayoutOrder = i,
+            ZIndex = 17,
+        }, savedScroll)
+        corner(item, 8)
+
+        new("TextLabel", {
+            Size = UDim2.new(1, -160, 0, 20),
+            Position = UDim2.new(0, 10, 0, 6),
+            BackgroundTransparency = 1,
+            Text = entry.name,
+            TextColor3 = C.text,
+            Font = Enum.Font.GothamBold,
+            TextSize = 13,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            ZIndex = 18,
+        }, item)
+
+        new("TextLabel", {
+            Size = UDim2.new(1, -160, 0, 20),
+            Position = UDim2.new(0, 10, 0, 26),
+            BackgroundTransparency = 1,
+            Text = string.sub(entry.code, 1, 40):gsub("\n", " "),
+            TextColor3 = C.subtext,
+            Font = Enum.Font.Code,
+            TextSize = 11,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            TextTruncate = Enum.TextTruncate.AtEnd,
+            ZIndex = 18,
+        }, item)
+
+        -- زر تحميل
+        local loadBtn = new("TextButton", {
+            Size = UDim2.new(0, 60, 0, 30),
+            Position = UDim2.new(1, -140, 0.5, 0),
+            AnchorPoint = UDim2.new(0, 0, 0.5, 0),
+            BackgroundColor3 = C.accent,
+            Text = "تحميل",
+            TextColor3 = C.text,
+            Font = Enum.Font.GothamBold,
+            TextSize = 11,
+            AutoButtonColor = false,
+            ZIndex = 18,
+        }, item)
+        corner(loadBtn, 6)
+        loadBtn.MouseButton1Click:Connect(function()
+            codeBox.Text = entry.code
+            switchTab("Execute")
+            toast("تم تحميل السكربت")
+        end)
+
+        -- زر حذف
+        local delBtn = new("TextButton", {
+            Size = UDim2.new(0, 60, 0, 30),
+            Position = UDim2.new(1, -74, 0.5, 0),
+            AnchorPoint = UDim2.new(0, 0, 0.5, 0),
+            BackgroundColor3 = C.danger,
+            Text = "حذف",
+            TextColor3 = C.text,
+            Font = Enum.Font.GothamBold,
+            TextSize = 11,
+            AutoButtonColor = false,
+            ZIndex = 18,
+        }, item)
+        corner(delBtn, 6)
+        delBtn.MouseButton1Click:Connect(function()
+            table.remove(savedScripts, i)
+            refreshSavedList()
+            toast("تم الحذف")
+        end)
+    end
+end
+refreshSavedList()
+
+--==========================================================================
+-- 🎯 منطق الأزرار
+--==========================================================================
+-- تبديل التبويبات
+for key, btn in pairs(tabs) do
+    btn.MouseButton1Click:Connect(function() switchTab(key) end)
+end
+
+-- زر التشغيل
+local function executeCode(code)
+    if not code or code:gsub("%s", "") == "" then
+        return false, "لا يوجد كود للتنفيذ"
+    end
+    local ls = loadstring or (getfenv and rawget(_G, "loadstring"))
+    if not ls then
+        return false, "loadstring غير متاح في هذه البيئة (Client عادي)."
+    end
+    local fn, err = pcall(ls, code)
+    if not fn then
+        return false, "خطأ في الترجمة: " .. tostring(err)
+    end
+    local ok, result = pcall(fn)
+    if not ok then
+        return false, "خطأ في التنفيذ: " .. tostring(result)
+    end
+    return true, "تم التنفيذ بنجاح ✅"
+end
+
+execBtn.MouseButton1Click:Connect(function()
+    local ok, msg = executeCode(codeBox.Text)
+    toast(msg, not ok)
+end)
+
+-- زر المسح
+clearBtn.MouseButton1Click:Connect(function()
+    codeBox.Text = ""
+    toast("تم مسح الكود")
+end)
+
+-- زر الحفظ
+saveBtn.MouseButton1Click:Connect(function()
+    if codeBox.Text:gsub("%s", "") == "" then
+        toast("لا يوجد كود لحفظه", true)
+        return
+    end
+    savedItemCounter = savedItemCounter + 1
+    table.insert(savedScripts, {
+        name = "سكربت محفوظ #" .. savedItemCounter,
+        code = codeBox.Text,
+    })
+    refreshSavedList()
+    toast("تم حفظ السكربت 💾")
+end)
+
+--==========================================================================
+-- 🔄 فتح/إغلاق القائمة
+--==========================================================================
+local isOpen = false
+
+local function openMenu()
+    if isOpen then return end
+    isOpen = true
+    local vp = camera.ViewportSize
+    local w = math.min(360, vp.X - 40)
+    local h = math.min(520, vp.Y - 130)
+    menu.Size = UDim2.new(0, w, 0, h)
+    menu.Visible = true
+    TweenService:Create(menu, TweenInfo.new(0.22, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+        GroupTransparency = 0
+    }):Play()
+end
+
+local function closeMenu()
+    if not isOpen then return end
+    isOpen = false
+    local tw = TweenService:Create(menu, TweenInfo.new(0.16, Enum.EasingStyle.Quart), {
+        GroupTransparency = 1
+    })
+    tw:Play()
+    tw.Completed:Connect(function()
+        if not isOpen then menu.Visible = false end
+    end)
+end
+
+toggleBtn.MouseButton1Click:Connect(function()
+    if isOpen then closeMenu() else openMenu() end
+end)
+
+closeBtn.MouseButton1Click:Connect(closeMenu)
+
+--==========================================================================
+-- 📱 التجاوب عند تغير حجم الشاشة (تدوير الجوال)
+--==========================================================================
+camera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+    if isOpen then
+        local vp = camera.ViewportSize
+        local w = math.min(360, vp.X - 40)
+        local h = math.min(520, vp.Y - 130)
+        menu.Size = UDim2.new(0, w, 0, h)
+    end
+end)
+
+--==========================================================================
+-- ✅ تم
+--==========================================================================
+print("[Executor GUI] Loaded ✓")
