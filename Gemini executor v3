@@ -1,7 +1,7 @@
 --[[
-	اسم السكربت: Classic Executor 1000 (50 Scripts + 950 Lessons + Error Box)
+	اسم السكربت: Classic Executor 1000 (Fixed Collapse & Re-open)
 	المكان: StarterPlayer > StarterPlayerScripts (LocalScript)
-	الوصف: واجهة كلاسيكية للهواتف مع زر صغير 36x36، حماية من حواف الشاشة، صندوق أخطاء، و1000 مادة تعليمية.
+	الوصف: إصلاح مشكلة التصغير وإعادة الفتح، مع واجهة كلاسيكية للهواتف، زر 36x36، صندوق أخطاء، و1000 عنصر تعليمي.
 ]]
 
 -- 1. تعريف الخدمات المطلوبة
@@ -15,7 +15,7 @@ local TweenService = game:GetService("TweenService")
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
--- 2. بناء 1,000 عنصر تعليمي (50 سكربتاً جاهزاً + 950 درساً وأمثلة تعليمية برمجية)
+-- 2. بناء 1,000 عنصر تعليمي (50 سكربتاً جاهزاً + 950 درساً تعليمياً)
 local BaseFiftyScripts = {
 	{ Kind = "Script", Title = "1. تغيير لون جسم اللاعب", Desc = "تلوين أجزاء الشخصية بلون أزرق كلاسيكي", Code = [[local char = game.Players.LocalPlayer.Character
 if char then
@@ -207,7 +207,6 @@ for _, item in ipairs(BaseFiftyScripts) do
 	table.insert(LearnScripts, item)
 end
 
--- إضافة 950 درساً تعليمياً ليكون الإجمالي 1,000 عنصر بالضبط
 for i = 51, 1000 do
 	local idx = i - 50
 	local topic = LessonTopics[((idx - 1) % #LessonTopics) + 1]
@@ -223,7 +222,7 @@ for i = 51, 1000 do
 	})
 end
 
--- 3. نظام حفظ محسّن (تثبيت + تحديث بالاسم + آخر مسودة + تصدير/استيراد JSON)
+-- 3. نظام حفظ محسّن
 local SavedScripts = {
 	{
 		Name = "سرعة كلاسيكية (50)",
@@ -316,13 +315,13 @@ local function styleBtn(btn, baseCol, hoverCol)
 	btn.MouseLeave:Connect(function() btn.BackgroundColor3 = baseCol end)
 end
 
--- منع اختفاء أي عنصر خارج حدود الشاشة المرئية
+-- إبقاء العناصر داخل الشاشة دون أن تختفي في الزوايا
 local function clampToViewport(guiObj)
 	local cam = workspace.CurrentCamera
 	local vp = cam and cam.ViewportSize or Vector2.new(1024, 600)
 	local margin = 6
-	local w = guiObj.AbsoluteSize.X > 0 and guiObj.AbsoluteSize.X or guiObj.Size.X.Offset
-	local h = guiObj.AbsoluteSize.Y > 0 and guiObj.AbsoluteSize.Y or guiObj.Size.Y.Offset
+	local w = guiObj.Size.X.Offset
+	local h = guiObj.Size.Y.Offset
 
 	local maxX = math.max(margin, vp.X - w - margin)
 	local maxY = math.max(margin, vp.Y - h - margin)
@@ -333,7 +332,7 @@ local function clampToViewport(guiObj)
 	guiObj.Position = UDim2.new(0, clampedX, 0, clampedY)
 end
 
--- سحب سلس للهواتف والماوس مع بقاء العنصر داخل الشاشة
+-- سحب سلس للهواتف والماوس
 local function makeDraggable(targetObj, dragHandle, onClickCallback)
 	local dragging = false
 	local moved = false
@@ -406,6 +405,7 @@ sharpCorner(MainFrame, 4)
 classicBorder(MainFrame, ClassicTheme.Border, 1)
 
 local isCollapsed = false
+local isOpen = false
 
 local function getExpandedSize()
 	local cam = workspace.CurrentCamera
@@ -421,15 +421,42 @@ local function getCollapsedSize()
 	return UDim2.new(0, exp.X.Offset, 0, 38)
 end
 
-local function syncLayoutAndBounds()
-	MainFrame.Size = isCollapsed and getCollapsedSize() or getExpandedSize()
-	clampToViewport(ToggleBtn)
-	clampToViewport(MainFrame)
+local function getActiveTargetSize()
+	return isCollapsed and getCollapsedSize() or getExpandedSize()
 end
 
-syncLayoutAndBounds()
+local function applyFrameState(animate)
+	local targetSize = getActiveTargetSize()
+	if not isOpen then
+		MainFrame.Visible = false
+		return
+	end
+
+	MainFrame.Visible = true
+	if animate then
+		local tw = TweenService:Create(MainFrame, TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			Size = targetSize
+		})
+		tw:Play()
+		tw.Completed:Connect(function()
+			if isOpen then
+				MainFrame.Size = getActiveTargetSize()
+				clampToViewport(MainFrame)
+			end
+		end)
+	else
+		MainFrame.Size = targetSize
+		clampToViewport(MainFrame)
+	end
+end
+
 if workspace.CurrentCamera then
-	workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(syncLayoutAndBounds)
+	workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+		clampToViewport(ToggleBtn)
+		if isOpen then
+			applyFrameState(false)
+		end
+	end)
 end
 
 -- شريط عنوان كلاسيكي للسحب والطي
@@ -454,9 +481,11 @@ HeaderTitle.TextTruncate = Enum.TextTruncate.AtEnd
 HeaderTitle.Parent = DragHeader
 
 local CollapseBtn = Instance.new("TextButton")
+CollapseBtn.Name = "CollapseButton"
 CollapseBtn.Size = UDim2.new(0, 24, 0, 20)
 CollapseBtn.Position = UDim2.new(1, -28, 0.5, -10)
 CollapseBtn.Text = "_"
+CollapseBtn.ZIndex = 5
 CollapseBtn.Parent = DragHeader
 styleBtn(CollapseBtn, ClassicTheme.Item, ClassicTheme.BlueHover)
 
@@ -536,7 +565,6 @@ CodeBox:GetPropertyChangedSignal("Text"):Connect(function()
 	end
 end)
 
--- شريط أزرار التنفيذ والحالة
 local StatusLbl = Instance.new("TextLabel")
 StatusLbl.Size = UDim2.new(0.42, 0, 0, 30)
 StatusLbl.Position = UDim2.new(0, 0, 1, -96)
@@ -564,7 +592,6 @@ ClearBtn.Text = "مسح"
 ClearBtn.Parent = ExecPage
 styleBtn(ClearBtn, ClassicTheme.Item, ClassicTheme.GreenHover)
 
--- مكان مخصص لعرض الأخطاء التي تحدث أثناء الصياغة أو التنفيذ
 local ErrorPanel = Instance.new("Frame")
 ErrorPanel.Name = "ErrorDisplayPanel"
 ErrorPanel.Size = UDim2.new(1, 0, 0, 58)
@@ -685,7 +712,7 @@ ClearBtn.MouseButton1Click:Connect(function()
 end)
 
 -- =========================================================
--- القسم الثاني: سكربتات محفوظة (نظام حفظ محسّن)
+-- القسم الثاني: سكربتات محفوظة
 -- =========================================================
 local SavedPage = Instance.new("Frame")
 SavedPage.Size = UDim2.new(1, 0, 1, 0)
@@ -920,7 +947,7 @@ JsonBtn.MouseButton1Click:Connect(function()
 end)
 
 -- =========================================================
--- القسم الثالث: 1000 عنصر تعليمي (بحث + فلتر + نسخ + تشغيل)
+-- القسم الثالث: 1000 عنصر تعليمي
 -- =========================================================
 local LearnPage = Instance.new("Frame")
 LearnPage.Size = UDim2.new(1, 0, 1, 0)
@@ -928,7 +955,7 @@ LearnPage.BackgroundTransparency = 1
 LearnPage.Visible = false
 LearnPage.Parent = BodyArea
 
-local FilterMode = "ALL" -- "ALL" | "Script" | "Lesson"
+local FilterMode = "ALL"
 
 local TopLearnBar = Instance.new("Frame")
 TopLearnBar.Size = UDim2.new(1, 0, 0, 26)
@@ -1098,7 +1125,7 @@ FilterLessonsBtn.MouseButton1Click:Connect(function()
 	rebuildLearnList(SearchBox.Text)
 end)
 
--- 7. التبديل بين التبويبات والطي والفتح مع السحب وحماية الحواف
+-- 7. التبديل بين التبويبات والطي والفتح بدون أي تعليق
 local function selectTab(activeBtn, page)
 	local map = {
 		{ btn = TabExec, p = ExecPage },
@@ -1124,44 +1151,16 @@ TabLearn.MouseButton1Click:Connect(function() selectTab(TabLearn, LearnPage) end
 CollapseBtn.MouseButton1Click:Connect(function()
 	isCollapsed = not isCollapsed
 	CollapseBtn.Text = isCollapsed and "+" or "_"
-	local nextSize = isCollapsed and getCollapsedSize() or getExpandedSize()
-	local tw = TweenService:Create(MainFrame, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-		Size = nextSize
-	})
-	tw:Play()
-	tw.Completed:Connect(function()
-		clampToViewport(MainFrame)
-	end)
+	applyFrameState(true)
 end)
 
-local isOpen = false
 local function toggleMenu()
 	isOpen = not isOpen
-	local fullSize = isCollapsed and getCollapsedSize() or getExpandedSize()
-
 	if isOpen then
 		MainFrame.Position = UDim2.new(0, ToggleBtn.Position.X.Offset, 0, ToggleBtn.Position.Y.Offset + ToggleBtn.Size.Y.Offset + 4)
-		MainFrame.Size = UDim2.new(0, fullSize.X.Offset, 0, 0)
-		MainFrame.Visible = true
-		clampToViewport(MainFrame)
-		local openTw = TweenService:Create(MainFrame, TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-			Size = fullSize
-		})
-		openTw:Play()
-		openTw.Completed:Connect(function()
-			clampToViewport(MainFrame)
-		end)
+		applyFrameState(true)
 	else
-		local closeTw = TweenService:Create(MainFrame, TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
-			Size = UDim2.new(0, fullSize.X.Offset, 0, 0)
-		})
-		closeTw:Play()
-		closeTw.Completed:Connect(function()
-			if not isOpen then
-				MainFrame.Visible = false
-				MainFrame.Size = fullSize
-			end
-		end)
+		MainFrame.Visible = false
 	end
 end
 
