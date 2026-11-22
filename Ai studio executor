@@ -1,0 +1,1319 @@
+--[[
+	AetherIDE // Cyberpunk In-Game Script Studio & Sandbox Console
+	Single LocalScript Architecture for Roblox Studio / Authorized Experiences
+	Place in StarterPlayerScripts (recommended) or StarterGui.
+]]
+
+--// Services
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local CollectionService = game:GetService("CollectionService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Lighting = game:GetService("Lighting")
+local Workspace = game:GetService("Workspace")
+
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+--// Prevent duplicate GUIs on respawn or re-execution
+local GUI_NAME = "AetherIDE_CyberStudio"
+local existingGui = PlayerGui:FindFirstChild(GUI_NAME)
+if existingGui then
+	existingGui:Destroy()
+end
+
+--// Verified Lucide Roblox Asset IDs
+local ICONS = {
+	Play = "rbxassetid://10734923549",
+	Stop = "rbxassetid://10734965702",
+	Folder = "rbxassetid://10723387563",
+	Search = "rbxassetid://10734943674",
+	Minimize = "rbxassetid://10734896206",
+	Close = "rbxassetid://10747384394",
+	Settings = "rbxassetid://10734963400",
+	Terminal = "rbxassetid://10734982144",
+}
+
+--// Theme Palette (Cyberpunk Dark / Neon Cyan & Purple)
+local THEME = {
+	BgDark = Color3.fromRGB(11, 13, 22),
+	BgPanel = Color3.fromRGB(17, 20, 34),
+	BgSurface = Color3.fromRGB(24, 29, 48),
+	BgHover = Color3.fromRGB(34, 42, 68),
+	Border = Color3.fromRGB(56, 70, 115),
+	Cyan = Color3.fromRGB(0, 240, 255),
+	Purple = Color3.fromRGB(168, 85, 247),
+	Pink = Color3.fromRGB(244, 63, 94),
+	Green = Color3.fromRGB(52, 211, 153),
+	Yellow = Color3.fromRGB(251, 191, 36),
+	TextPrimary = Color3.fromRGB(238, 242, 255),
+	TextMuted = Color3.fromRGB(148, 163, 184),
+}
+
+local TAG_MANAGED = "AetherIDE_ManagedObject"
+
+--// State
+local State = {
+	ExecutionMode = "Run", -- "Run" | "Debug" | "Preview"
+	TargetKey = "Workspace", -- "Workspace" | "Character" | "ReplicatedStorage" | "PlayerGui"
+	LeftTab = "Explorer", -- "Explorer" | "Hub"
+	RightTab = "Console", -- "Console" | "Inspector"
+	IsMinimized = false,
+	IsHidden = false,
+	BlurEnabled = true,
+	AutoSaveEnabled = true,
+	PanelTransparency = 0.16,
+	CurrentScriptName = "Welcome.lua",
+	UndoStack = {},
+	LastText = "",
+	SuppressUndo = false,
+	TrackedThreads = {},
+	TrackedConnections = {},
+}
+
+--// Local Save Storage (Folder inside PlayerGui)
+local SaveFolder = PlayerGui:FindFirstChild("AetherIDE_SavedScripts")
+if not SaveFolder then
+	SaveFolder = Instance.new("Folder")
+	SaveFolder.Name = "AetherIDE_SavedScripts"
+	SaveFolder.Parent = PlayerGui
+end
+
+--// Predefined Built-In Script Catalog (Simulates Public Gist / Pastebin Hub API)
+local HUB_API_ENDPOINT = "https://api.github.com/gists/public (Simulated Hub)"
+local HUB_CATALOG = {
+	{
+		id = "diag-01",
+		title = "Workspace Diagnostics",
+		author = "StudioCore",
+		category = "Diagnostics",
+		description = "Inspects Workspace parts count, client memory, and runtime mode.",
+		code = [[-- Workspace & Client Diagnostics
+local mem = math.floor(gcinfo())
+local parts = 0
+for _, obj in ipairs(workspace:GetDescendants()) do
+	if obj:IsA("BasePart") then
+		parts += 1
+	end
+end
+print("Environment:", game:GetService("RunService"):IsStudio() and "Studio" or "Live Client")
+print("Client Memory (KB):", mem)
+print("BaseParts in Workspace:", parts)]],
+	},
+	{
+		id = "char-02",
+		title = "Character Telemetry",
+		author = "AvatarLab",
+		category = "Character",
+		description = "Reads current Humanoid health, walkspeed, and root position.",
+		code = [[-- Character Telemetry Inspector
+local plr = game:GetService("Players").LocalPlayer
+local char = plr.Character
+if not char then
+	warn("No character spawned yet.")
+	return
+end
+local hum = char:FindFirstChildOfClass("Humanoid")
+local root = char:FindFirstChild("HumanoidRootPart")
+print("Player:", plr.Name)
+if hum then
+	print("Health:", hum.Health, "/", hum.MaxHealth)
+	print("WalkSpeed:", hum.WalkSpeed)
+end
+if root then
+	print("Position:", tostring(root.Position))
+end]],
+	},
+	{
+		id = "fx-03",
+		title = "Preview Beacon Part",
+		author = "VisualFX",
+		category = "Preview",
+		description = "Spawns a temporary neon preview cube tagged for GC cleanup.",
+		code = [[-- Spawn Temporary Neon Preview Part (Auto-tagged for GC)
+local part = Instance.new("Part")
+part.Name = "AetherPreviewBeacon"
+part.Size = Vector3.new(3, 3, 3)
+part.Anchored = true
+part.Material = Enum.Material.Neon
+part.Color = Color3.fromRGB(0, 240, 255)
+local char = game:GetService("Players").LocalPlayer.Character
+local root = char and char:FindFirstChild("HumanoidRootPart")
+part.CFrame = root and (root.CFrame * CFrame.new(0, 2, -8)) or CFrame.new(0, 10, 0)
+part.Parent = workspace
+print("Spawned Preview Beacon at", tostring(part.Position))]],
+	},
+	{
+		id = "net-04",
+		title = "ReplicatedStorage Scan",
+		author = "ArchTool",
+		category = "Explorer",
+		description = "Lists top-level folders and objects inside ReplicatedStorage.",
+		code = [[-- ReplicatedStorage Hierarchy Scan
+local rep = game:GetService("ReplicatedStorage")
+local children = rep:GetChildren()
+print("ReplicatedStorage Children:", #children)
+for i, child in ipairs(children) do
+	print(string.format("[%d] %s (%s)", i, child.Name, child.ClassName))
+end]],
+	},
+	{
+		id = "ui-05",
+		title = "Viewport & Input Check",
+		author = "UXMaster",
+		category = "UI",
+		description = "Displays camera viewport resolution and active input capabilities.",
+		code = [[-- Viewport & Input Info
+local cam = workspace.CurrentCamera
+local uis = game:GetService("UserInputService")
+if cam then
+	print("ViewportSize:", cam.ViewportSize.X .. "x" .. cam.ViewportSize.Y)
+end
+print("TouchEnabled:", uis.TouchEnabled, "KeyboardEnabled:", uis.KeyboardEnabled)]],
+	},
+}
+
+--// Seed default local scripts
+local DEFAULT_SCRIPTS = {
+	["Welcome.lua"] = [[-- Welcome to AetherIDE // Cyber Script Studio
+-- Shortcuts: Ctrl+Enter (Run) | Ctrl+S (Save) | Ctrl+Z (Undo) | Insert (Toggle UI)
+
+local player = game:GetService("Players").LocalPlayer
+print("Studio initialized for:", player.Name)
+
+local sum = 0
+for i = 1, 5 do
+	sum += i
+end
+print("Sandbox check (1..5):", sum)]],
+	["MemoryCheck.lua"] = [[-- Quick GC & Player Telemetry
+print("Lua Heap (KB):", math.floor(gcinfo()))
+print("Players online:", #game:GetService("Players"):GetPlayers())]],
+}
+
+for name, src in pairs(DEFAULT_SCRIPTS) do
+	if not SaveFolder:FindFirstChild(name) then
+		local val = Instance.new("StringValue")
+		val.Name = name
+		val.Value = src
+		val.Parent = SaveFolder
+	end
+end
+
+--// UI Factory Helpers
+local function addCorner(parent, radius)
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0, radius)
+	c.Parent = parent
+	return c
+end
+
+local function addStroke(parent, color, thickness, transparency)
+	local s = Instance.new("UIStroke")
+	s.Color = color
+	s.Thickness = thickness or 1
+	s.Transparency = transparency or 0.45
+	s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	s.Parent = parent
+	return s
+end
+
+local function addGradient(parent, c1, c2, rotation)
+	local g = Instance.new("UIGradient")
+	g.Color = ColorSequence.new(c1, c2)
+	g.Rotation = rotation or 45
+	g.Parent = parent
+	return g
+end
+
+local function attachHoverScale(button, hoverScale)
+	local uiScale = Instance.new("UIScale")
+	uiScale.Scale = 1
+	uiScale.Parent = button
+
+	local target = hoverScale or 1.05
+	local ti = TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+
+	button.MouseEnter:Connect(function()
+		TweenService:Create(uiScale, ti, { Scale = target }):Play()
+	end)
+	button.MouseLeave:Connect(function()
+		TweenService:Create(uiScale, ti, { Scale = 1 }):Play()
+	end)
+	button.MouseButton1Down:Connect(function()
+		TweenService:Create(uiScale, ti, { Scale = 0.95 }):Play()
+	end)
+	button.MouseButton1Up:Connect(function()
+		TweenService:Create(uiScale, ti, { Scale = target }):Play()
+	end)
+end
+
+local function makeIcon(parent, imageUrl, sizeOffset, color)
+	local img = Instance.new("ImageLabel")
+	img.BackgroundTransparency = 1
+	img.Image = imageUrl
+	img.ImageColor3 = color or THEME.TextPrimary
+	img.Size = UDim2.fromOffset(sizeOffset or 16, sizeOffset or 16)
+	img.ScaleType = Enum.ScaleType.Fit
+	img.Parent = parent
+	return img
+end
+
+--// Single-Pass Luau Syntax Highlighter (Safe XML Escaping for RichText)
+local KEYWORDS = {
+	["and"] = true, ["break"] = true, ["do"] = true, ["else"] = true, ["elseif"] = true,
+	["end"] = true, ["false"] = true, ["for"] = true, ["function"] = true, ["if"] = true,
+	["in"] = true, ["local"] = true, ["nil"] = true, ["not"] = true, ["or"] = true,
+	["repeat"] = true, ["return"] = true, ["then"] = true, ["true"] = true, ["until"] = true,
+	["while"] = true, ["continue"] = true,
+}
+
+local BUILTINS = {
+	["game"] = true, ["workspace"] = true, ["script"] = true, ["math"] = true,
+	["string"] = true, ["table"] = true, ["task"] = true, ["Instance"] = true,
+	["Vector3"] = true, ["CFrame"] = true, ["Color3"] = true, ["UDim2"] = true,
+	["Enum"] = true, ["print"] = true, ["warn"] = true, ["error"] = true,
+	["pcall"] = true, ["xpcall"] = true, ["pairs"] = true, ["ipairs"] = true,
+	["tostring"] = true, ["tonumber"] = true, ["gcinfo"] = true, ["target"] = true,
+}
+
+local function escapeXml(str)
+	return (str:gsub("&", "&amp;"):gsub("<", "&lt;"):gsub(">", "&gt;"))
+end
+
+local function highlightLuau(code)
+	local out = {}
+	local len = #code
+	local i = 1
+
+	while i <= len do
+		local ch = string.sub(code, i, i)
+		if ch == "-" and string.sub(code, i, i + 1) == "--" then
+			if string.sub(code, i, i + 3) == "--[[" then
+				local closeIdx = string.find(code, "]]", i + 4, true)
+				local endIdx = closeIdx and (closeIdx + 1) or len
+				table.insert(out, '<font color="#64748B"><i>' .. escapeXml(string.sub(code, i, endIdx)) .. "</i></font>")
+				i = endIdx + 1
+			else
+				local nl = string.find(code, "\n", i, true)
+				local endIdx = nl and (nl - 1) or len
+				table.insert(out, '<font color="#64748B"><i>' .. escapeXml(string.sub(code, i, endIdx)) .. "</i></font>")
+				i = endIdx + 1
+			end
+		elseif ch == '"' or ch == "'" then
+			local quote = ch
+			local j = i + 1
+			while j <= len do
+				local c = string.sub(code, j, j)
+				if c == "\\" then
+					j += 2
+				elseif c == quote then
+					break
+				elseif c == "\n" then
+					j -= 1
+					break
+				else
+					j += 1
+				end
+			end
+			local endIdx = math.min(j, len)
+			table.insert(out, '<font color="#34D399">' .. escapeXml(string.sub(code, i, endIdx)) .. "</font>")
+			i = endIdx + 1
+		elseif string.match(ch, "%d") then
+			local _, endIdx = string.find(code, "^%d+%.?%d*", i)
+			endIdx = endIdx or i
+			table.insert(out, '<font color="#FBBF24">' .. string.sub(code, i, endIdx) .. "</font>")
+			i = endIdx + 1
+		elseif string.match(ch, "[%a_]") then
+			local _, endIdx = string.find(code, "^[%a_][%w_]*", i)
+			endIdx = endIdx or i
+			local word = string.sub(code, i, endIdx)
+			if KEYWORDS[word] then
+				table.insert(out, '<font color="#C084FC"><b>' .. word .. "</b></font>")
+			elseif BUILTINS[word] then
+				table.insert(out, '<font color="#00F0FF">' .. word .. "</font>")
+			else
+				table.insert(out, word)
+			end
+			i = endIdx + 1
+		else
+			table.insert(out, escapeXml(ch))
+			i += 1
+		end
+	end
+
+	return table.concat(out)
+end
+
+--// Build Root ScreenGui (IgnoreGuiInset = false avoids TopBar overlap)
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = GUI_NAME
+ScreenGui.ResetOnSpawn = false
+ScreenGui.IgnoreGuiInset = false
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.DisplayOrder = 20
+ScreenGui.Parent = PlayerGui
+
+--// Lighting Blur Effect
+local BlurEffect = Lighting:FindFirstChild("AetherIDE_Blur")
+if not BlurEffect then
+	BlurEffect = Instance.new("BlurEffect")
+	BlurEffect.Name = "AetherIDE_Blur"
+	BlurEffect.Size = 0
+	BlurEffect.Enabled = true
+	BlurEffect.Parent = Lighting
+end
+
+local function updateBlur(active)
+	local targetSize = (active and State.BlurEnabled and not State.IsHidden and not State.IsMinimized) and 10 or 0
+	TweenService:Create(BlurEffect, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		Size = targetSize,
+	}):Play()
+end
+
+--// Main Window Container (Centered, safe from Chat [top-left] & Leaderboard [top-right])
+local MainWindow = Instance.new("Frame")
+MainWindow.Name = "MainWindow"
+MainWindow.AnchorPoint = Vector2.new(0.5, 0.5)
+MainWindow.Position = UDim2.fromScale(0.5, 0.52)
+MainWindow.Size = UDim2.fromScale(0.74, 0.74)
+MainWindow.BackgroundColor3 = THEME.BgDark
+MainWindow.BackgroundTransparency = State.PanelTransparency
+MainWindow.ClipsDescendants = true
+MainWindow.Parent = ScreenGui
+addCorner(MainWindow, 12)
+local mainStroke = addStroke(MainWindow, THEME.Cyan, 1.5, 0.35)
+addGradient(MainWindow, Color3.fromRGB(14, 18, 32), Color3.fromRGB(22, 16, 38), 135)
+
+local sizeConstraint = Instance.new("UISizeConstraint")
+sizeConstraint.MinSize = Vector2.new(600, 380)
+sizeConstraint.MaxSize = Vector2.new(1180, 760)
+sizeConstraint.Parent = MainWindow
+
+--// Restore Pill (Shown when closed/hidden)
+local RestoreBtn = Instance.new("TextButton")
+RestoreBtn.Name = "RestorePill"
+RestoreBtn.AnchorPoint = Vector2.new(0.5, 1)
+RestoreBtn.Position = UDim2.new(0.5, 0, 1, -18)
+RestoreBtn.Size = UDim2.fromOffset(175, 36)
+RestoreBtn.BackgroundColor3 = THEME.BgPanel
+RestoreBtn.BackgroundTransparency = 0.1
+RestoreBtn.Text = "  AetherIDE [Insert]"
+RestoreBtn.Font = Enum.Font.GothamBold
+RestoreBtn.TextSize = 13
+RestoreBtn.TextColor3 = THEME.Cyan
+RestoreBtn.Visible = false
+RestoreBtn.Parent = ScreenGui
+addCorner(RestoreBtn, 18)
+addStroke(RestoreBtn, THEME.Purple, 1.5, 0.25)
+attachHoverScale(RestoreBtn, 1.06)
+
+--// Top Bar (44px)
+local TopBar = Instance.new("Frame")
+TopBar.Name = "TopBar"
+TopBar.Size = UDim2.new(1, 0, 0, 44)
+TopBar.BackgroundColor3 = THEME.BgPanel
+TopBar.BackgroundTransparency = 0.1
+TopBar.Parent = MainWindow
+addGradient(TopBar, Color3.fromRGB(20, 25, 45), Color3.fromRGB(34, 22, 54), 0)
+
+local TopBarLine = Instance.new("Frame")
+TopBarLine.Size = UDim2.new(1, 0, 0, 1)
+TopBarLine.Position = UDim2.new(0, 0, 1, -1)
+TopBarLine.BackgroundColor3 = THEME.Cyan
+TopBarLine.BackgroundTransparency = 0.55
+TopBarLine.BorderSizePixel = 0
+TopBarLine.Parent = TopBar
+
+-- Top Bar Left: Logo & Title
+local BrandGroup = Instance.new("Frame")
+BrandGroup.Size = UDim2.new(0.45, 0, 1, 0)
+BrandGroup.Position = UDim2.fromOffset(14, 0)
+BrandGroup.BackgroundTransparency = 1
+BrandGroup.Parent = TopBar
+
+local brandLayout = Instance.new("UIListLayout")
+brandLayout.FillDirection = Enum.FillDirection.Horizontal
+brandLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+brandLayout.Padding = UDim.new(0, 8)
+brandLayout.Parent = BrandGroup
+
+makeIcon(BrandGroup, ICONS.Terminal, 18, THEME.Cyan)
+
+local TitleLabel = Instance.new("TextLabel")
+TitleLabel.BackgroundTransparency = 1
+TitleLabel.AutomaticSize = Enum.AutomaticSize.X
+TitleLabel.Size = UDim2.new(0, 0, 1, 0)
+TitleLabel.Font = Enum.Font.GothamBold
+TitleLabel.TextSize = 15
+TitleLabel.Text = "AetherIDE"
+TitleLabel.TextColor3 = THEME.TextPrimary
+TitleLabel.Parent = BrandGroup
+
+local EnvBadge = Instance.new("TextLabel")
+EnvBadge.Size = UDim2.fromOffset(66, 20)
+EnvBadge.BackgroundColor3 = RunService:IsStudio() and THEME.Purple or THEME.Cyan
+EnvBadge.BackgroundTransparency = 0.78
+EnvBadge.Font = Enum.Font.GothamBold
+EnvBadge.TextSize = 10
+EnvBadge.Text = RunService:IsStudio() and "STUDIO" or "CLIENT"
+EnvBadge.TextColor3 = RunService:IsStudio() and THEME.Purple or THEME.Cyan
+EnvBadge.Parent = BrandGroup
+addCorner(EnvBadge, 6)
+addStroke(EnvBadge, EnvBadge.TextColor3, 1, 0.4)
+
+local StatusBadge = Instance.new("TextLabel")
+StatusBadge.BackgroundTransparency = 1
+StatusBadge.AutomaticSize = Enum.AutomaticSize.X
+StatusBadge.Size = UDim2.new(0, 0, 1, 0)
+StatusBadge.Font = Enum.Font.Code
+StatusBadge.TextSize = 11
+StatusBadge.Text = "• Welcome.lua"
+StatusBadge.TextColor3 = THEME.TextMuted
+StatusBadge.Parent = BrandGroup
+
+-- Top Bar Right: Mode, Target, Minimize, Close
+local TopControls = Instance.new("Frame")
+TopControls.AnchorPoint = Vector2.new(1, 0)
+TopControls.Position = UDim2.new(1, -10, 0, 0)
+TopControls.Size = UDim2.new(0.55, 0, 1, 0)
+TopControls.BackgroundTransparency = 1
+TopControls.Parent = TopBar
+
+local topCtrlLayout = Instance.new("UIListLayout")
+topCtrlLayout.FillDirection = Enum.FillDirection.Horizontal
+topCtrlLayout.HorizontalAlignment = Enum.HorizontalAlignment.Right
+topCtrlLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+topCtrlLayout.Padding = UDim.new(0, 8)
+topCtrlLayout.Parent = TopControls
+
+local ModeCycleBtn = Instance.new("TextButton")
+ModeCycleBtn.Size = UDim2.fromOffset(105, 26)
+ModeCycleBtn.BackgroundColor3 = THEME.BgSurface
+ModeCycleBtn.Font = Enum.Font.GothamSemibold
+ModeCycleBtn.TextSize = 11
+ModeCycleBtn.TextColor3 = THEME.Cyan
+ModeCycleBtn.Text = "Mode: Run"
+ModeCycleBtn.Parent = TopControls
+addCorner(ModeCycleBtn, 6)
+addStroke(ModeCycleBtn, THEME.Cyan, 1, 0.5)
+attachHoverScale(ModeCycleBtn, 1.04)
+
+local TargetCycleBtn = Instance.new("TextButton")
+TargetCycleBtn.Size = UDim2.fromOffset(132, 26)
+TargetCycleBtn.BackgroundColor3 = THEME.BgSurface
+TargetCycleBtn.Font = Enum.Font.GothamSemibold
+TargetCycleBtn.TextSize = 11
+TargetCycleBtn.TextColor3 = THEME.Purple
+TargetCycleBtn.Text = "Target: Workspace"
+TargetCycleBtn.Parent = TopControls
+addCorner(TargetCycleBtn, 6)
+addStroke(TargetCycleBtn, THEME.Purple, 1, 0.5)
+attachHoverScale(TargetCycleBtn, 1.04)
+
+local function createWindowBtn(iconUrl, accentColor)
+	local btn = Instance.new("TextButton")
+	btn.Size = UDim2.fromOffset(28, 28)
+	btn.BackgroundColor3 = THEME.BgSurface
+	btn.Text = ""
+	btn.Parent = TopControls
+	addCorner(btn, 6)
+	addStroke(btn, THEME.Border, 1, 0.5)
+	local ic = makeIcon(btn, iconUrl, 14, accentColor)
+	ic.AnchorPoint = Vector2.new(0.5, 0.5)
+	ic.Position = UDim2.fromScale(0.5, 0.5)
+	attachHoverScale(btn, 1.08)
+	return btn
+end
+
+local MinBtn = createWindowBtn(ICONS.Minimize, THEME.Yellow)
+local CloseBtn = createWindowBtn(ICONS.Close, THEME.Pink)
+
+--// Draggable TopBar Logic
+do
+	local dragging = false
+	local dragStart, startPos
+	TopBar.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = true
+			dragStart = input.Position
+			startPos = MainWindow.Position
+		end
+	end)
+	UserInputService.InputChanged:Connect(function(input)
+		if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+			local delta = input.Position - dragStart
+			MainWindow.Position = UDim2.new(
+				startPos.X.Scale,
+				startPos.X.Offset + delta.X,
+				startPos.Y.Scale,
+				startPos.Y.Offset + delta.Y
+			)
+		end
+	end)
+	UserInputService.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = false
+		end
+	end)
+end
+
+--// Main Body Container (Between TopBar and BottomToolbar)
+local BodyFrame = Instance.new("Frame")
+BodyFrame.Name = "BodyFrame"
+BodyFrame.Position = UDim2.fromOffset(0, 44)
+BodyFrame.Size = UDim2.new(1, 0, 1, -94)
+BodyFrame.BackgroundTransparency = 1
+BodyFrame.Parent = MainWindow
+
+local bodyPadding = Instance.new("UIPadding")
+bodyPadding.PaddingLeft = UDim.new(0, 8)
+bodyPadding.PaddingRight = UDim.new(0, 8)
+bodyPadding.PaddingTop = UDim.new(0, 8)
+bodyPadding.PaddingBottom = UDim.new(0, 8)
+bodyPadding.Parent = BodyFrame
+
+--// LEFT PANEL: Explorer + Script Hub (23% width)
+local LeftPanel = Instance.new("Frame")
+LeftPanel.Name = "LeftPanel"
+LeftPanel.Size = UDim2.new(0.23, -6, 1, 0)
+LeftPanel.BackgroundColor3 = THEME.BgPanel
+LeftPanel.BackgroundTransparency = 0.22
+LeftPanel.Parent = BodyFrame
+addCorner(LeftPanel, 8)
+addStroke(LeftPanel, THEME.Border, 1, 0.5)
+
+local LeftTabBar = Instance.new("Frame")
+LeftTabBar.Size = UDim2.new(1, -12, 0, 30)
+LeftTabBar.Position = UDim2.fromOffset(6, 6)
+LeftTabBar.BackgroundTransparency = 1
+LeftTabBar.Parent = LeftPanel
+
+local leftTabLayout = Instance.new("UIListLayout")
+leftTabLayout.FillDirection = Enum.FillDirection.Horizontal
+leftTabLayout.Padding = UDim.new(0, 6)
+leftTabLayout.Parent = LeftTabBar
+
+local function makeTabBtn(parent, text, widthScale)
+	local b = Instance.new("TextButton")
+	b.Size = UDim2.new(widthScale, -3, 1, 0)
+	b.BackgroundColor3 = THEME.BgSurface
+	b.Font = Enum.Font.GothamSemibold
+	b.TextSize = 11
+	b.Text = text
+	b.TextColor3 = THEME.TextMuted
+	b.Parent = parent
+	addCorner(b, 6)
+	attachHoverScale(b, 1.03)
+	return b
+end
+
+local ExplorerTabBtn = makeTabBtn(LeftTabBar, "Explorer", 0.5)
+local HubTabBtn = makeTabBtn(LeftTabBar, "Script Hub", 0.5)
+
+-- Explorer Container
+local ExplorerPage = Instance.new("Frame")
+ExplorerPage.Position = UDim2.fromOffset(6, 42)
+ExplorerPage.Size = UDim2.new(1, -12, 1, -48)
+ExplorerPage.BackgroundTransparency = 1
+ExplorerPage.Parent = LeftPanel
+
+local NewScriptBtn = Instance.new("TextButton")
+NewScriptBtn.Size = UDim2.new(1, 0, 0, 26)
+NewScriptBtn.BackgroundColor3 = THEME.BgSurface
+NewScriptBtn.Font = Enum.Font.GothamBold
+NewScriptBtn.TextSize = 11
+NewScriptBtn.Text = "+ New Script"
+NewScriptBtn.TextColor3 = THEME.Cyan
+NewScriptBtn.Parent = ExplorerPage
+addCorner(NewScriptBtn, 6)
+addStroke(NewScriptBtn, THEME.Cyan, 1, 0.55)
+attachHoverScale(NewScriptBtn, 1.02)
+
+local ExplorerScroll = Instance.new("ScrollingFrame")
+ExplorerScroll.Position = UDim2.fromOffset(0, 32)
+ExplorerScroll.Size = UDim2.new(1, 0, 1, -32)
+ExplorerScroll.BackgroundTransparency = 1
+ExplorerScroll.ScrollBarThickness = 4
+ExplorerScroll.ScrollBarImageColor3 = THEME.Cyan
+ExplorerScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+ExplorerScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+ExplorerScroll.BorderSizePixel = 0
+ExplorerScroll.Parent = ExplorerPage
+
+local explorerListLayout = Instance.new("UIListLayout")
+explorerListLayout.Padding = UDim.new(0, 5)
+explorerListLayout.Parent = ExplorerScroll
+
+-- Script Hub Container
+local HubPage = Instance.new("Frame")
+HubPage.Position = UDim2.fromOffset(6, 42)
+HubPage.Size = UDim2.new(1, -12, 1, -48)
+HubPage.BackgroundTransparency = 1
+HubPage.Visible = false
+HubPage.Parent = LeftPanel
+
+local SearchBoxFrame = Instance.new("Frame")
+SearchBoxFrame.Size = UDim2.new(1, 0, 0, 28)
+SearchBoxFrame.BackgroundColor3 = THEME.BgSurface
+SearchBoxFrame.Parent = HubPage
+addCorner(SearchBoxFrame, 6)
+addStroke(SearchBoxFrame, THEME.Border, 1, 0.4)
+
+local searchIc = makeIcon(SearchBoxFrame, ICONS.Search, 14, THEME.Cyan)
+searchIc.Position = UDim2.fromOffset(7, 7)
+
+local HubSearchInput = Instance.new("TextBox")
+HubSearchInput.Position = UDim2.fromOffset(26, 0)
+HubSearchInput.Size = UDim2.new(1, -60, 1, 0)
+HubSearchInput.BackgroundTransparency = 1
+HubSearchInput.Font = Enum.Font.Gotham
+HubSearchInput.TextSize = 11
+HubSearchInput.PlaceholderText = "Search Hub..."
+HubSearchInput.PlaceholderColor3 = THEME.TextMuted
+HubSearchInput.TextColor3 = THEME.TextPrimary
+HubSearchInput.Text = ""
+HubSearchInput.ClearTextOnFocus = false
+HubSearchInput.TextXAlignment = Enum.TextXAlignment.Left
+HubSearchInput.Parent = SearchBoxFrame
+
+local HubRefreshBtn = Instance.new("TextButton")
+HubRefreshBtn.AnchorPoint = Vector2.new(1, 0.5)
+HubRefreshBtn.Position = UDim2.new(1, -4, 0.5, 0)
+HubRefreshBtn.Size = UDim2.fromOffset(28, 22)
+HubRefreshBtn.BackgroundColor3 = THEME.BgHover
+HubRefreshBtn.Font = Enum.Font.GothamBold
+HubRefreshBtn.TextSize = 11
+HubRefreshBtn.Text = "↻"
+HubRefreshBtn.TextColor3 = THEME.Cyan
+HubRefreshBtn.Parent = SearchBoxFrame
+addCorner(HubRefreshBtn, 4)
+
+-- Loading Animation Bar
+local HubLoadingBarBg = Instance.new("Frame")
+HubLoadingBarBg.Position = UDim2.fromOffset(0, 32)
+HubLoadingBarBg.Size = UDim2.new(1, 0, 0, 3)
+HubLoadingBarBg.BackgroundColor3 = THEME.BgSurface
+HubLoadingBarBg.Visible = false
+HubLoadingBarBg.ClipsDescendants = true
+HubLoadingBarBg.Parent = HubPage
+addCorner(HubLoadingBarBg, 2)
+
+local HubLoadingBarFill = Instance.new("Frame")
+HubLoadingBarFill.Size = UDim2.new(0.4, 0, 1, 0)
+HubLoadingBarFill.BackgroundColor3 = THEME.Cyan
+HubLoadingBarFill.Parent = HubLoadingBarBg
+addGradient(HubLoadingBarFill, THEME.Cyan, THEME.Purple, 0)
+
+local HubScroll = Instance.new("ScrollingFrame")
+HubScroll.Position = UDim2.fromOffset(0, 38)
+HubScroll.Size = UDim2.new(1, 0, 1, -38)
+HubScroll.BackgroundTransparency = 1
+HubScroll.ScrollBarThickness = 4
+HubScroll.ScrollBarImageColor3 = THEME.Purple
+HubScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+HubScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+HubScroll.BorderSizePixel = 0
+HubScroll.Parent = HubPage
+
+local hubListLayout = Instance.new("UIListLayout")
+hubListLayout.Padding = UDim.new(0, 6)
+hubListLayout.Parent = HubScroll
+
+--// CENTER PANEL: Code Editor (49% width)
+local CenterPanel = Instance.new("Frame")
+CenterPanel.Name = "CenterPanel"
+CenterPanel.Position = UDim2.new(0.23, 0, 0, 0)
+CenterPanel.Size = UDim2.new(0.49, 0, 1, 0)
+CenterPanel.BackgroundColor3 = Color3.fromRGB(10, 12, 20)
+CenterPanel.BackgroundTransparency = 0.14
+CenterPanel.Parent = BodyFrame
+addCorner(CenterPanel, 8)
+addStroke(CenterPanel, THEME.Border, 1, 0.45)
+
+local EditorHeader = Instance.new("Frame")
+EditorHeader.Size = UDim2.new(1, 0, 0, 28)
+EditorHeader.BackgroundColor3 = THEME.BgSurface
+EditorHeader.BackgroundTransparency = 0.25
+EditorHeader.Parent = CenterPanel
+addCorner(EditorHeader, 8)
+
+local EditorTabLabel = Instance.new("TextLabel")
+EditorTabLabel.Position = UDim2.fromOffset(10, 0)
+EditorTabLabel.Size = UDim2.new(0.6, 0, 1, 0)
+EditorTabLabel.BackgroundTransparency = 1
+EditorTabLabel.Font = Enum.Font.Code
+EditorTabLabel.TextSize = 12
+EditorTabLabel.TextXAlignment = Enum.TextXAlignment.Left
+EditorTabLabel.Text = "Welcome.lua"
+EditorTabLabel.TextColor3 = THEME.Cyan
+EditorTabLabel.Parent = EditorHeader
+
+local AutoSaveIndicator = Instance.new("TextLabel")
+AutoSaveIndicator.AnchorPoint = Vector2.new(1, 0)
+AutoSaveIndicator.Position = UDim2.new(1, -10, 0, 0)
+AutoSaveIndicator.Size = UDim2.new(0.35, 0, 1, 0)
+AutoSaveIndicator.BackgroundTransparency = 1
+AutoSaveIndicator.Font = Enum.Font.Gotham
+AutoSaveIndicator.TextSize = 10
+AutoSaveIndicator.TextXAlignment = Enum.TextXAlignment.Right
+AutoSaveIndicator.Text = "Auto-Save: Ready"
+AutoSaveIndicator.TextColor3 = THEME.TextMuted
+AutoSaveIndicator.Parent = EditorHeader
+
+local EditorScroll = Instance.new("ScrollingFrame")
+EditorScroll.Position = UDim2.fromOffset(4, 32)
+EditorScroll.Size = UDim2.new(1, -8, 1, -36)
+EditorScroll.BackgroundTransparency = 1
+EditorScroll.ScrollBarThickness = 5
+EditorScroll.ScrollBarImageColor3 = THEME.Cyan
+EditorScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+EditorScroll.AutomaticCanvasSize = Enum.AutomaticSize.XY
+EditorScroll.BorderSizePixel = 0
+EditorScroll.Parent = CenterPanel
+
+local LineNumbers = Instance.new("TextLabel")
+LineNumbers.Name = "LineNumbers"
+LineNumbers.Position = UDim2.fromOffset(2, 4)
+LineNumbers.Size = UDim2.new(0, 32, 1, -8)
+LineNumbers.AutomaticSize = Enum.AutomaticSize.Y
+LineNumbers.BackgroundTransparency = 1
+LineNumbers.Font = Enum.Font.Code
+LineNumbers.TextSize = 14
+LineNumbers.TextColor3 = Color3.fromRGB(90, 105, 138)
+LineNumbers.TextXAlignment = Enum.TextXAlignment.Right
+LineNumbers.TextYAlignment = Enum.TextYAlignment.Top
+LineNumbers.Text = "1"
+LineNumbers.Parent = EditorScroll
+
+local HighlightDisplay = Instance.new("TextLabel")
+HighlightDisplay.Name = "HighlightDisplay"
+HighlightDisplay.Position = UDim2.fromOffset(42, 4)
+HighlightDisplay.Size = UDim2.new(1, -48, 1, -8)
+HighlightDisplay.AutomaticSize = Enum.AutomaticSize.XY
+HighlightDisplay.BackgroundTransparency = 1
+HighlightDisplay.Font = Enum.Font.Code
+HighlightDisplay.TextSize = 14
+HighlightDisplay.RichText = true
+HighlightDisplay.TextColor3 = THEME.TextPrimary
+HighlightDisplay.TextXAlignment = Enum.TextXAlignment.Left
+HighlightDisplay.TextYAlignment = Enum.TextYAlignment.Top
+HighlightDisplay.Text = ""
+HighlightDisplay.ZIndex = 2
+HighlightDisplay.Parent = EditorScroll
+
+local CodeBox = Instance.new("TextBox")
+CodeBox.Name = "CodeBox"
+CodeBox.Position = UDim2.fromOffset(42, 4)
+CodeBox.Size = UDim2.new(1, -48, 1, -8)
+CodeBox.AutomaticSize = Enum.AutomaticSize.XY
+CodeBox.BackgroundTransparency = 1
+CodeBox.Font = Enum.Font.Code
+CodeBox.TextSize = 14
+CodeBox.RichText = false
+CodeBox.MultiLine = true
+CodeBox.ClearTextOnFocus = false
+CodeBox.TextWrapped = false
+CodeBox.TextColor3 = THEME.TextPrimary
+CodeBox.TextTransparency = 0.92
+CodeBox.TextXAlignment = Enum.TextXAlignment.Left
+CodeBox.TextYAlignment = Enum.TextYAlignment.Top
+CodeBox.Text = ""
+CodeBox.ZIndex = 3
+CodeBox.Parent = EditorScroll
+
+--// RIGHT PANEL: Console + Variable Inspector (28% width)
+local RightPanel = Instance.new("Frame")
+RightPanel.Name = "RightPanel"
+RightPanel.Position = UDim2.new(0.72, 6, 0, 0)
+RightPanel.Size = UDim2.new(0.28, -6, 1, 0)
+RightPanel.BackgroundColor3 = THEME.BgPanel
+RightPanel.BackgroundTransparency = 0.22
+RightPanel.Parent = BodyFrame
+addCorner(RightPanel, 8)
+addStroke(RightPanel, THEME.Border, 1, 0.5)
+
+local RightTabBar = Instance.new("Frame")
+RightTabBar.Size = UDim2.new(1, -12, 0, 30)
+RightTabBar.Position = UDim2.fromOffset(6, 6)
+RightTabBar.BackgroundTransparency = 1
+RightTabBar.Parent = RightPanel
+
+local rightTabLayout = Instance.new("UIListLayout")
+rightTabLayout.FillDirection = Enum.FillDirection.Horizontal
+rightTabLayout.Padding = UDim.new(0, 6)
+rightTabLayout.Parent = RightTabBar
+
+local ConsoleTabBtn = makeTabBtn(RightTabBar, "Console", 0.5)
+local InspectorTabBtn = makeTabBtn(RightTabBar, "Inspector", 0.5)
+
+local ConsoleScroll = Instance.new("ScrollingFrame")
+ConsoleScroll.Position = UDim2.fromOffset(6, 42)
+ConsoleScroll.Size = UDim2.new(1, -12, 1, -48)
+ConsoleScroll.BackgroundColor3 = Color3.fromRGB(10, 12, 20)
+ConsoleScroll.BackgroundTransparency = 0.35
+ConsoleScroll.ScrollBarThickness = 4
+ConsoleScroll.ScrollBarImageColor3 = THEME.Cyan
+ConsoleScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+ConsoleScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+ConsoleScroll.BorderSizePixel = 0
+ConsoleScroll.Parent = RightPanel
+addCorner(ConsoleScroll, 6)
+
+local consolePadding = Instance.new("UIPadding")
+consolePadding.PaddingLeft = UDim.new(0, 6)
+consolePadding.PaddingRight = UDim.new(0, 6)
+consolePadding.PaddingTop = UDim.new(0, 6)
+consolePadding.PaddingBottom = UDim.new(0, 6)
+consolePadding.Parent = ConsoleScroll
+
+local consoleLayout = Instance.new("UIListLayout")
+consoleLayout.Padding = UDim.new(0, 4)
+consoleLayout.Parent = ConsoleScroll
+
+local InspectorPage = Instance.new("Frame")
+InspectorPage.Position = UDim2.fromOffset(6, 42)
+InspectorPage.Size = UDim2.new(1, -12, 1, -48)
+InspectorPage.BackgroundTransparency = 1
+InspectorPage.Visible = false
+InspectorPage.Parent = RightPanel
+
+local RefreshInspectorBtn = Instance.new("TextButton")
+RefreshInspectorBtn.Size = UDim2.new(1, 0, 0, 24)
+RefreshInspectorBtn.BackgroundColor3 = THEME.BgSurface
+RefreshInspectorBtn.Font = Enum.Font.GothamSemibold
+RefreshInspectorBtn.TextSize = 11
+RefreshInspectorBtn.Text = "Sync Live Variables"
+RefreshInspectorBtn.TextColor3 = THEME.Purple
+RefreshInspectorBtn.Parent = InspectorPage
+addCorner(RefreshInspectorBtn, 6)
+addStroke(RefreshInspectorBtn, THEME.Purple, 1, 0.5)
+attachHoverScale(RefreshInspectorBtn, 1.02)
+
+local InspectorScroll = Instance.new("ScrollingFrame")
+InspectorScroll.Position = UDim2.fromOffset(0, 30)
+InspectorScroll.Size = UDim2.new(1, 0, 1, -30)
+InspectorScroll.BackgroundColor3 = Color3.fromRGB(10, 12, 20)
+InspectorScroll.BackgroundTransparency = 0.35
+InspectorScroll.ScrollBarThickness = 4
+InspectorScroll.ScrollBarImageColor3 = THEME.Purple
+InspectorScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+InspectorScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+InspectorScroll.BorderSizePixel = 0
+InspectorScroll.Parent = InspectorPage
+addCorner(InspectorScroll, 6)
+
+local inspectorLayout = Instance.new("UIListLayout")
+inspectorLayout.Padding = UDim.new(0, 4)
+inspectorLayout.Parent = InspectorScroll
+
+local inspPad = Instance.new("UIPadding")
+inspPad.PaddingLeft = UDim.new(0, 6)
+inspPad.PaddingRight = UDim.new(0, 6)
+inspPad.PaddingTop = UDim.new(0, 6)
+inspPad.Parent = InspectorScroll
+
+--// BOTTOM TOOLBAR (50px)
+local BottomBar = Instance.new("Frame")
+BottomBar.Name = "BottomToolbar"
+BottomBar.Position = UDim2.new(0, 0, 1, -50)
+BottomBar.Size = UDim2.new(1, 0, 0, 50)
+BottomBar.BackgroundColor3 = THEME.BgPanel
+BottomBar.BackgroundTransparency = 0.1
+BottomBar.Parent = MainWindow
+
+local bottomLine = Instance.new("Frame")
+bottomLine.Size = UDim2.new(1, 0, 0, 1)
+bottomLine.BackgroundColor3 = THEME.Purple
+bottomLine.BackgroundTransparency = 0.55
+bottomLine.BorderSizePixel = 0
+bottomLine.Parent = BottomBar
+
+local ToolbarLeft = Instance.new("Frame")
+ToolbarLeft.Position = UDim2.fromOffset(10, 0)
+ToolbarLeft.Size = UDim2.new(1, -20, 1, 0)
+ToolbarLeft.BackgroundTransparency = 1
+ToolbarLeft.Parent = BottomBar
+
+local tbLayout = Instance.new("UIListLayout")
+tbLayout.FillDirection = Enum.FillDirection.Horizontal
+tbLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+tbLayout.Padding = UDim.new(0, 8)
+tbLayout.Parent = ToolbarLeft
+
+local function makeToolbarBtn(label, iconUrl, accentColor, width)
+	local btn = Instance.new("TextButton")
+	btn.Size = UDim2.fromOffset(width or 92, 32)
+	btn.BackgroundColor3 = THEME.BgSurface
+	btn.Text = ""
+	btn.Parent = ToolbarLeft
+	addCorner(btn, 7)
+	addStroke(btn, accentColor, 1, 0.35)
+	attachHoverScale(btn, 1.05)
+
+	local row = Instance.new("UIListLayout")
+	row.FillDirection = Enum.FillDirection.Horizontal
+	row.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	row.VerticalAlignment = Enum.VerticalAlignment.Center
+	row.Padding = UDim.new(0, 6)
+	row.Parent = btn
+
+	if iconUrl then
+		makeIcon(btn, iconUrl, 14, accentColor)
+	end
+
+	local txt = Instance.new("TextLabel")
+	txt.AutomaticSize = Enum.AutomaticSize.X
+	txt.Size = UDim2.new(0, 0, 1, 0)
+	txt.BackgroundTransparency = 1
+	txt.Font = Enum.Font.GothamBold
+	txt.TextSize = 12
+	txt.Text = label
+	txt.TextColor3 = THEME.TextPrimary
+	txt.Parent = btn
+
+	return btn
+end
+
+local ExecuteBtn = makeToolbarBtn("Execute", ICONS.Play, THEME.Green, 102)
+local StopBtn = makeToolbarBtn("Stop / GC", ICONS.Stop, THEME.Pink, 102)
+local ClearBtn = makeToolbarBtn("Clear", nil, THEME.Yellow, 72)
+local SaveBtn = makeToolbarBtn("Save", ICONS.Folder, THEME.Cyan, 80)
+local LoadBtn = makeToolbarBtn("Reload", nil, THEME.Purple, 78)
+local SettingsBtn = makeToolbarBtn("Settings", ICONS.Settings, THEME.TextMuted, 94)
+
+--// Settings Drawer Modal
+local SettingsModal = Instance.new("Frame")
+SettingsModal.Name = "SettingsModal"
+SettingsModal.AnchorPoint = Vector2.new(0.5, 0.5)
+SettingsModal.Position = UDim2.fromScale(0.5, 0.5)
+SettingsModal.Size = UDim2.fromOffset(310, 210)
+SettingsModal.BackgroundColor3 = THEME.BgPanel
+SettingsModal.Visible = false
+SettingsModal.ZIndex = 20
+SettingsModal.Parent = MainWindow
+addCorner(SettingsModal, 10)
+addStroke(SettingsModal, THEME.Cyan, 1.5, 0.25)
+
+local SettingsTitle = Instance.new("TextLabel")
+SettingsTitle.Size = UDim2.new(1, 0, 0, 36)
+SettingsTitle.BackgroundTransparency = 1
+SettingsTitle.Font = Enum.Font.GothamBold
+SettingsTitle.TextSize = 14
+SettingsTitle.Text = "AetherIDE Settings"
+SettingsTitle.TextColor3 = THEME.Cyan
+SettingsTitle.ZIndex = 21
+SettingsTitle.Parent = SettingsModal
+
+local BlurToggleBtn = Instance.new("TextButton")
+BlurToggleBtn.Position = UDim2.fromOffset(18, 48)
+BlurToggleBtn.Size = UDim2.new(1, -36, 0, 34)
+BlurToggleBtn.BackgroundColor3 = THEME.BgSurface
+BlurToggleBtn.Font = Enum.Font.GothamSemibold
+BlurToggleBtn.TextSize = 12
+BlurToggleBtn.Text = "Background Blur: ON"
+BlurToggleBtn.TextColor3 = THEME.TextPrimary
+BlurToggleBtn.ZIndex = 21
+BlurToggleBtn.Parent = SettingsModal
+addCorner(BlurToggleBtn, 6)
+addStroke(BlurToggleBtn, THEME.Purple, 1, 0.45)
+
+local AutoSaveToggleBtn = Instance.new("TextButton")
+AutoSaveToggleBtn.Position = UDim2.fromOffset(18, 92)
+AutoSaveToggleBtn.Size = UDim2.new(1, -36, 0, 34)
+AutoSaveToggleBtn.BackgroundColor3 = THEME.BgSurface
+AutoSaveToggleBtn.Font = Enum.Font.GothamSemibold
+AutoSaveToggleBtn.TextSize = 12
+AutoSaveToggleBtn.Text = "Auto-Save Scripts: ON"
+AutoSaveToggleBtn.TextColor3 = THEME.TextPrimary
+AutoSaveToggleBtn.ZIndex = 21
+AutoSaveToggleBtn.Parent = SettingsModal
+addCorner(AutoSaveToggleBtn, 6)
+addStroke(AutoSaveToggleBtn, THEME.Cyan, 1, 0.45)
+
+local CloseSettingsBtn = Instance.new("TextButton")
+CloseSettingsBtn.Position = UDim2.fromOffset(18, 154)
+CloseSettingsBtn.Size = UDim2.new(1, -36, 0, 34)
+CloseSettingsBtn.BackgroundColor3 = THEME.BgHover
+CloseSettingsBtn.Font = Enum.Font.GothamBold
+CloseSettingsBtn.TextSize = 12
+CloseSettingsBtn.Text = "Close Settings"
+CloseSettingsBtn.TextColor3 = THEME.Cyan
+CloseSettingsBtn.ZIndex = 21
+CloseSettingsBtn.Parent = SettingsModal
+addCorner(CloseSettingsBtn, 6)
+
+--// Console Logger
+local function logConsole(kind, ...)
+	local parts = {}
+	for i = 1, select("#", ...) do
+		table.insert(parts, tostring(select(i, ...)))
+	end
+	local msg = table.concat(parts, " ")
+	local timestamp = os.date("%H:%M:%S")
+
+	local color = THEME.TextPrimary
+	local prefix = "[LOG]"
+	if kind == "warn" then
+		color = THEME.Yellow
+		prefix = "[WARN]"
+	elseif kind == "error" then
+		color = THEME.Pink
+		prefix = "[ERR]"
+	elseif kind == "sys" then
+		color = THEME.Cyan
+		prefix = "[SYS]"
+	elseif kind == "ok" then
+		color = THEME.Green
+		prefix = "[OK]"
+	end
+
+	local line = Instance.new("TextLabel")
+	line.Size = UDim2.new(1, 0, 0, 0)
+	line.AutomaticSize = Enum.AutomaticSize.Y
+	line.BackgroundTransparency = 1
+	line.Font = Enum.Font.Code
+	line.TextSize = 11
+	line.TextWrapped = true
+	line.TextXAlignment = Enum.TextXAlignment.Left
+	line.TextColor3 = color
+	line.Text = string.format("[%s] %s %s", timestamp, prefix, msg)
+	line.Parent = ConsoleScroll
+
+	task.defer(function()
+		ConsoleScroll.CanvasPosition = Vector2.new(0, ConsoleScroll.AbsoluteCanvasSize.Y)
+	end)
+end
+
+--// Editor Sync (Syntax Highlighting + Line Numbers + Undo + Auto-Save)
+local saveDebounceToken = 0
+
+local function syncEditorVisuals()
+	local text = CodeBox.Text
+	HighlightDisplay.Text = highlightLuau(text)
+
+	local _, lineCount = string.gsub(text, "\n", "\n")
+	local nums = {}
+	for i = 1, lineCount + 1 do
+		nums[i] = tostring(i)
+	end
+	LineNumbers.Text = table.concat(nums, "\n")
+
+	if not State.SuppressUndo and text ~= State.LastText then
+		table.insert(State.UndoStack, State.LastText)
+		if #State.UndoStack > 40 then
+			table.remove(State.UndoStack, 1)
+		end
+		State.LastText = text
+	end
+
+	if State.AutoSaveEnabled then
+		saveDebounceToken += 1
+		local token = saveDebounceToken
+		AutoSaveIndicator.Text = "Auto-Save: Pending..."
+		AutoSaveIndicator.TextColor3 = THEME.Yellow
+		task.delay(0.8, function()
+			if token == saveDebounceToken and State.AutoSaveEnabled then
+				local val = SaveFolder:FindFirstChild(State.CurrentScriptName)
+				if not val then
+					val = Instance.new("StringValue")
+					val.Name = State.CurrentScriptName
+					val.Parent = SaveFolder
+				end
+				val.Value = CodeBox.Text
+				AutoSaveIndicator.Text = "Auto-Save: Saved"
+				AutoSaveIndicator.TextColor3 = THEME.Green
+			end
+		end)
+	end
+end
+
+CodeBox:GetPropertyChangedSignal("Text"):Connect(syncEditorVisuals)
+
+local function setEditorText(name, content)
+	State.CurrentScriptName = name
+	EditorTabLabel.Text = name
+	StatusBadge.Text = "• " .. name
+	State.SuppressUndo = true
+	State.LastText = content
+	CodeBox.Text = content
+	State.SuppressUndo = false
+	syncEditorVisuals()
+end
+
+--// Explorer List Refresh
+local function refreshExplorer()
+	for _, child in ipairs(ExplorerScroll:GetChildren()) do
+		if child:IsA("Frame") then
+			child:Destroy()
+		end
+	end
+
+	local items = SaveFolder:GetChildren()
+	table.sort(items, function(a, b)
+		return a.Name < b.Name
+	end)
+
+	for _, sv in ipairs(items) do
+		if sv:IsA("StringValue") then
+			local row = Instance.new("Frame")
+			row.Size = UDim2.new(1, -4, 0, 28)
+			row.BackgroundColor3 = (sv.Name == State.CurrentScriptName) and THEME.BgHover or THEME.BgSurface
+			row.Parent = ExplorerScroll
+			addCorner(row, 6)
+
+			local btn = Instance.new("TextButton")
+			btn.Size = UDim2.new(1, -28, 1, 0)
+			btn.Position = UDim2.fromOffset(6, 0)
+			btn.BackgroundTransparency = 1
+			btn.Font = Enum.Font.Code
+			btn.TextSize = 11
+			btn.TextXAlignment = Enum.TextXAlignment.Left
+			btn.TextTruncate = Enum.TextTruncate.AtEnd
+			btn.Text = sv.Name
+			btn.TextColor3 = (sv.Name == State.CurrentScriptName) and THEME.Cyan or THEME.TextPrimary
+			btn.Parent = row
+
+			btn.MouseButton1Click:Connect(function()
+				setEditorText(sv.Name, sv.Value)
+				refreshExplorer()
+				logConsole("sys", "Loaded script:", sv.Name)
+			end)
+
+			local del = Instance.new("TextButton")
+			del.AnchorPoint = Vector2.new(1, 0.5)
+			del.Position = UDim2.new(1, -4, 0.5, 0)
+			del.Size = UDim2.fromOffset(20, 20)
+			del.BackgroundTransparency = 1
+			del.Font = Enum.Font.GothamBold
+			del.TextSize = 11
+			del.Text = "×"
+			del.TextColor3 = THEME.Pink
+			del.Parent = row
+
+			del.MouseButton1Click:Connect(function()
+				if #SaveFolder:GetChildren() <= 1 then
+					logConsole("warn", "Cannot delete the last remaining script.")
+					return
+				end
+				local deletedName = sv.Name
+				sv:Destroy()
+				local first = SaveFolder:FindFirstChildOfClass("StringValue")
+				if first and State.CurrentScriptName == deletedName then
+					setEditorText(first.Name, first.Value)
+				end
+				refreshExplorer()
+				logConsole("sys", "Removed script:", deletedName)
+			end)
+		end
+	end
+end
+
+--// Script Hub Search & Async Fetch Simulation
+local function renderHubItems(filterText)
+	for _, child in ipairs(HubScroll:GetChildren()) do
+		if child:IsA("Frame") then
+			child:Destroy()
+		end
+	end
+
+	local query = string.lower(filterText or "")
+	local count = 0
+
+	for _, entry in ipairs(HUB_CATALOG) do
+		local hay = string.lower(entry.title .. " " .. entry.category .. " " .. entry.description)
+		if query == "" or string.find(hay, query, 1, true) then
+			count += 1
+			local card = Instance.new("Frame")
+			card.Size = UDim2.new(1, -4, 0, 74)
+			card.BackgroundColor3 = THEME.BgSurface
+			card.Parent = HubScroll
+			addCorner(card, 6)
+			addStroke(card, THEME.Border, 1, 0.55)
+
+			local title = Instance.new("TextLabel")
+			title.Position = UDim2.fromOffset(8, 5)
+			title.Size = UDim2.new(1, -16, 0, 16)
+			title.BackgroundTransparency = 1
+			title.Font = Enum.Font.GothamBold
+			title.TextSize = 11
+			title.TextXAlignment = Enum.TextXAlignment.Left
+			title.TextColor3 = THEME.Cyan
+			title.Text = entry.title
+			title.Parent = card
+
+			local desc = Instance.new("TextLabel")
+			desc.Position = UDim2.fromOffset(8, 22)
+			desc.Size = UDim2.new(1, -16, 0, 26)
+			desc.BackgroundTransparency = 1
+			desc.Font = Enum.Font.Gotham
+			desc.TextSize = 10
+			desc.TextWrapped = true
+			desc.TextXAlignment = Enum.TextXAlignment.Left
+			desc.TextYAlignment = Enum.TextYAlignment.Top
+			desc.TextColor3 = THEME.TextMuted
+			desc.Text = entry.description
+			desc.Parent = card
+
+			local loadBtn = Instance.new("TextButton")
+			loadBtn.AnchorPoint = Vector2.new(1, 1)
+			loadBtn.Position = UDim2.new(1, -6, 1, -5)
+			loadBtn.Size = UDim2.fromOffset(74, 20)
+			loadBtn.BackgroundColor3 = THEME.BgHover
+			loadBtn.Font = Enum.Font.GothamBold
+			loadBtn.TextSize = 10
+			loadBtn.Text = "Load Code"
+			loadBtn.TextColor3 = THEME.Purple
+			loadBtn.Parent = card
+			addCorner(loadBtn, 4)
+			addStroke(loadBtn, THEME.Purple, 1, 0.4)
+
+			loadBtn.MouseButton1Click:Connect(function()
+				local fileName = entry.title:gsub("%s+", "") .. ".lua"
+				setEditorText(fileName, entry.code)
+				logConsole("ok", "Fetched from Hub:", entry.title)
+			end)
+		end
+	end
+
+	if count == 0 then
+		local empty = Instance.new("Frame")
+		empty.Size = UDim2.new(1, 0, 0, 32)
+		empty.BackgroundTransparency = 1
+		empty.Parent = HubScroll
+		local lbl = Instance.new("TextLabel")
+		lbl.Size = UDim2.fromScale(1, 1)
+		lbl.BackgroundTransparency = 1
+		lbl.Font = Enum.Font.Gotham
+		lbl.TextSize = 11
+		lbl.TextColor3 = THEME.TextMuted
+		lbl.Text = "No matching scripts found."
+		lbl.Parent = empty
+	end
+end
+
+local function fetchHubWithAnimation(query)
+	HubLoadingBarBg.Visible = true
+	HubLoadingBarFill.Position = UDim2.fromScale(-0.4, 0)
+	local anim = TweenService:Create(
+		HubLoadingBarFill,
+		TweenInfo.new(0.45, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut),
+		{ Position = UDim2.fromScale(1, 0) }
+	)
+	anim:Play()
+	task.delay(0.45, function()
+		HubLoadingBarBg.Visible = false
+		renderHubItems(query)
+	end)
+end
+
+HubSearchInput:GetPropertyChangedSignal("Text"):Connect(function()
+	renderHubItems(HubSearchInput.Text)
+end)
+
+HubRefreshBtn.MouseButton1Click:Connect(function()
+	logConsole("sys", "Refreshing Hub catalog from", HUB_API_ENDPOINT)
+	fetchHubWithAnimation(HubSearchInput.Text)
+end)
