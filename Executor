@@ -1,0 +1,1105 @@
+-- Organized Executor UI + Smooth Corner Hide + Stop + Multi-Page Search + Ready Scripts
+
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local HttpService = game:GetService("HttpService")
+
+local LocalPlayer = Players.LocalPlayer
+
+local function getUiParent()
+	local ok, hui = pcall(function()
+		return gethui and gethui()
+	end)
+	if ok and hui then
+		return hui
+	end
+	return LocalPlayer:WaitForChild("PlayerGui")
+end
+
+local function addCorner(inst, px)
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0, px or 6)
+	c.Parent = inst
+	return c
+end
+
+local function runLoadstring(codeText, sourceName)
+	if type(codeText) ~= "string" or codeText:match("^%s*$") then
+		warn("[Executor] Empty code.")
+		return false
+	end
+
+	local loader = loadstring
+	if type(loader) ~= "function" then
+		warn("[Executor] loadstring unavailable.")
+		return false
+	end
+
+	local fn, compErr = loader(codeText, "@" .. tostring(sourceName or "Script"))
+	if not fn then
+		warn("[Executor] Compile Error: " .. tostring(compErr))
+		return false
+	end
+
+	local ok, runErr = pcall(fn)
+	if not ok then
+		warn("[Executor] Runtime Error: " .. tostring(runErr))
+		return false
+	end
+
+	return true
+end
+
+-- ألوان هادئة ومتوازنة بدون RGB ساطع[span_0](start_span)[span_0](end_span)[span_1](start_span)[span_1](end_span)
+local COLORS = {
+	TitleBar = Color3.fromRGB(224, 227, 232),
+	TitleText = Color3.fromRGB(28, 30, 34),
+	WindowBg = Color3.fromRGB(24, 26, 31),
+	EditorBg = Color3.fromRGB(32, 35, 42),
+	CardBg = Color3.fromRGB(38, 42, 50),
+	Border = Color3.fromRGB(72, 77, 87),
+	TextMain = Color3.fromRGB(232, 235, 240),
+	TextSub = Color3.fromRGB(154, 161, 173),
+	BtnNeutral = Color3.fromRGB(52, 57, 66),
+	BtnSlate = Color3.fromRGB(64, 76, 92),
+	BtnMutedTeal = Color3.fromRGB(56, 84, 79),
+	BtnStop = Color3.fromRGB(92, 54, 58),
+}
+
+-- أيقونات روبلوكس الرسمية فقط[span_2](start_span)[span_2](end_span)
+local ICONS = {
+	Search = "rbxassetid://13365156882",
+	Close = "rbxassetid://13363121645",
+	Toggle = "rbxassetid://13711943220",
+	Thumb = "rbxassetid://13365407660",
+}
+
+-------------------------------------------------------------------------
+-- نظام السكربتات الجاهزة وزر الإيقاف (Speed, Jump, Inf Jump, Box ESP)
+-------------------------------------------------------------------------
+local ReadyState = {
+	SpeedEnabled = false,
+	SpeedValue = 36,
+	JumpEnabled = false,
+	JumpValue = 85,
+	InfJumpEnabled = false,
+	BoxEspEnabled = false,
+}
+
+local espBoxes = {}
+local infJumpConn = nil
+local espRenderConn = nil
+local characterLoopConn = nil
+
+local function getHumanoid()
+	local char = LocalPlayer.Character
+	if not char then return nil end
+	return char:FindFirstChildOfClass("Humanoid")
+end
+
+local function applyMovementStats()
+	local hum = getHumanoid()
+	if not hum then return end
+
+	if ReadyState.SpeedEnabled then
+		hum.WalkSpeed = ReadyState.SpeedValue
+	else
+		hum.WalkSpeed = 16
+	end
+
+	if ReadyState.JumpEnabled then
+		hum.UseJumpPower = true
+		hum.JumpPower = ReadyState.JumpValue
+	else
+		hum.UseJumpPower = true
+		hum.JumpPower = 50
+	end
+end
+
+local function clearAllEspBoxes()
+	for _, box in pairs(espBoxes) do
+		if box and box.Parent then
+			box:Destroy()
+		end
+	end
+	table.clear(espBoxes)
+end
+
+local function ensureBoxForPlayer(plr)
+	if plr == LocalPlayer then return nil end
+	local char = plr.Character
+	if not char then return nil end
+	local root = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso") or char:FindFirstChild("UpperTorso")
+	if not root then return nil end
+
+	local existing = espBoxes[plr]
+	if existing and existing.Parent and existing.Adornee == root then
+		return existing
+	end
+
+	if existing then
+		existing:Destroy()
+	end
+
+	local box = Instance.new("BoxHandleAdornment")
+	box.Name = "SquareEspBox_" .. plr.Name
+	box.Adornee = root
+	box.AlwaysOnTop = true
+	box.ZIndex = 10
+	box.Size = Vector3.new(4, 5.5, 2.5)
+	box.Color3 = Color3.fromRGB(205, 212, 222)
+	box.Transparency = 0.55
+	box.Parent = getUiParent()
+
+	espBoxes[plr] = box
+	return box
+end
+
+local function updateBoxEsp()
+	if not ReadyState.BoxEspEnabled then
+		clearAllEspBoxes()
+		return
+	end
+
+	for plr, box in pairs(espBoxes) do
+		if not plr.Parent or not plr.Character or not plr.Character:FindFirstChild("HumanoidRootPart") then
+			if box then box:Destroy() end
+			espBoxes[plr] = nil
+		end
+	end
+
+	for _, plr in ipairs(Players:GetPlayers()) do
+		if plr ~= LocalPlayer and plr.Character then
+			local hum = plr.Character:FindFirstChildOfClass("Humanoid")
+			local box = ensureBoxForPlayer(plr)
+			if box then
+				box.Visible = (hum ~= nil and hum.Health > 0)
+			end
+		end
+	end
+end
+
+local function setInfJump(enabled)
+	ReadyState.InfJumpEnabled = enabled
+	if infJumpConn then
+		infJumpConn:Disconnect()
+		infJumpConn = nil
+	end
+	if enabled then
+		infJumpConn = UserInputService.JumpRequest:Connect(function()
+			if not ReadyState.InfJumpEnabled then return end
+			local hum = getHumanoid()
+			if hum then
+				hum:ChangeState(Enum.HumanoidStateType.Jumping)
+			end
+		end)
+	end
+end
+
+local function setBoxEsp(enabled)
+	ReadyState.BoxEspEnabled = enabled
+	if espRenderConn then
+		espRenderConn:Disconnect()
+		espRenderConn = nil
+	end
+	if enabled then
+		updateBoxEsp()
+		espRenderConn = RunService.RenderStepped:Connect(updateBoxEsp)
+	else
+		clearAllEspBoxes()
+	end
+end
+
+local function stopAllFeatures()
+	ReadyState.SpeedEnabled = false
+	ReadyState.JumpEnabled = false
+	setInfJump(false)
+	setBoxEsp(false)
+	applyMovementStats()
+end
+
+if not characterLoopConn then
+	characterLoopConn = LocalPlayer.CharacterAdded:Connect(function()
+		task.wait(0.25)
+		applyMovementStats()
+		if ReadyState.BoxEspEnabled then
+			clearAllEspBoxes()
+			updateBoxEsp()
+		end
+	end)
+end
+
+-------------------------------------------------------------------------
+-- بناء الواجهة وحركة الزوايا والإخفاء في الزوايا
+-------------------------------------------------------------------------
+local parentGui = getUiParent()
+if parentGui:FindFirstChild("OrganizedExecutorGui") then
+	parentGui:FindFirstChild("OrganizedExecutorGui"):Destroy()
+end
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "OrganizedExecutorGui"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.DisplayOrder = 70
+ScreenGui.Parent = parentGui
+
+local function getViewport()
+	local cam = workspace.CurrentCamera
+	return (cam and cam.ViewportSize) or Vector2.new(1280, 720)
+end
+
+local function tweenPos(obj, x, y, duration)
+	local t = TweenService:Create(
+		obj,
+		TweenInfo.new(duration or 0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+		{ Position = UDim2.fromOffset(x, y) }
+	)
+	t:Play()
+	return t
+end
+
+-- حساب أقرب زاوية لإخفاء العنصر جزئياً في زاوية الشاشة عند الإخفاء أو السحب للحافة
+local function getCornerHidePosition(obj)
+	local vp = getViewport()
+	local sz = obj.AbsoluteSize
+	local pos = obj.AbsolutePosition
+	local centerX = pos.X + (sz.X * 0.5)
+	local centerY = pos.Y + (sz.Y * 0.5)
+
+	local isLeft = centerX < (vp.X * 0.5)
+	local isTop = centerY < (vp.Y * 0.5)
+
+	local peek = 14
+	local targetX = isLeft and (-sz.X + peek) or (vp.X - peek)
+	local targetY = isTop and (-sz.Y + peek) or (vp.Y - peek)
+	return targetX, targetY
+end
+
+local function clampVisiblePosition(obj, x, y)
+	local vp = getViewport()
+	local sz = obj.AbsoluteSize
+	local pad = 10
+	local maxX = math.max(pad, vp.X - sz.X - pad)
+	local maxY = math.max(pad, vp.Y - sz.Y - pad)
+	return math.clamp(x, pad, maxX), math.clamp(y, pad, maxY)
+end
+
+-- زر فتح وإغلاق متحرك يختفي في الزوايا ويعود عند الضغط أو السحب للداخل
+local ToggleBtn = Instance.new("ImageButton")
+ToggleBtn.Name = "ToggleBtn"
+ToggleBtn.Size = UDim2.fromOffset(44, 44)
+ToggleBtn.Position = UDim2.fromOffset(14, 14)
+ToggleBtn.BackgroundColor3 = COLORS.EditorBg
+ToggleBtn.BorderSizePixel = 1
+ToggleBtn.BorderColor3 = COLORS.Border
+ToggleBtn.Image = ICONS.Toggle
+ToggleBtn.ImageColor3 = COLORS.TextMain
+ToggleBtn.ScaleType = Enum.ScaleType.Fit
+ToggleBtn.ZIndex = 100
+ToggleBtn.Parent = ScreenGui
+addCorner(ToggleBtn, 8)
+
+local TogglePad = Instance.new("UIPadding")
+TogglePad.PaddingTop = UDim.new(0, 9)
+TogglePad.PaddingBottom = UDim.new(0, 9)
+TogglePad.PaddingLeft = UDim.new(0, 9)
+TogglePad.PaddingRight = UDim.new(0, 9)
+TogglePad.Parent = ToggleBtn
+
+-- النافذة الرئيسية بنفس الحجم والشكل مع زوايا مدورة وحركة للزوايا[span_3](start_span)[span_3](end_span)
+local MainFrame = Instance.new("Frame")
+MainFrame.Name = "MainFrame"
+MainFrame.Size = UDim2.fromOffset(540, 310)
+MainFrame.Position = UDim2.fromOffset(220, 110)
+MainFrame.BackgroundColor3 = COLORS.WindowBg
+MainFrame.BorderSizePixel = 1
+MainFrame.BorderColor3 = COLORS.Border
+MainFrame.Visible = true
+MainFrame.ZIndex = 20
+MainFrame.Parent = ScreenGui
+addCorner(MainFrame, 8)
+
+local isWindowHiddenToCorner = false
+local lastVisibleWindowPos = Vector2.new(220, 110)
+local isToggleHiddenToCorner = false
+local lastVisibleTogglePos = Vector2.new(14, 14)
+
+local function setWindowCornerHidden(hide)
+	isWindowHiddenToCorner = hide
+	if hide then
+		lastVisibleWindowPos = Vector2.new(MainFrame.AbsolutePosition.X, MainFrame.AbsolutePosition.Y)
+		local cx, cy = getCornerHidePosition(MainFrame)
+		tweenPos(MainFrame, cx, cy, 0.24)
+	else
+		local vx, vy = clampVisiblePosition(MainFrame, lastVisibleWindowPos.X, lastVisibleWindowPos.Y)
+		tweenPos(MainFrame, vx, vy, 0.24)
+	end
+end
+
+local function setToggleCornerHidden(hide)
+	isToggleHiddenToCorner = hide
+	if hide then
+		lastVisibleTogglePos = Vector2.new(ToggleBtn.AbsolutePosition.X, ToggleBtn.AbsolutePosition.Y)
+		local cx, cy = getCornerHidePosition(ToggleBtn)
+		tweenPos(ToggleBtn, cx, cy, 0.22)
+	else
+		local vx, vy = clampVisiblePosition(ToggleBtn, lastVisibleTogglePos.X, lastVisibleTogglePos.Y)
+		tweenPos(ToggleBtn, vx, vy, 0.22)
+	end
+end
+
+local function fitViewport()
+	local vp = getViewport()
+	local w = math.clamp(vp.X - 48, 300, 560)
+	local h = math.clamp(vp.Y - 32, 230, 330)
+	MainFrame.Size = UDim2.fromOffset(w, h)
+
+	if isWindowHiddenToCorner then
+		local cx, cy = getCornerHidePosition(MainFrame)
+		MainFrame.Position = UDim2.fromOffset(cx, cy)
+	else
+		local vx, vy = clampVisiblePosition(MainFrame, MainFrame.AbsolutePosition.X, MainFrame.AbsolutePosition.Y)
+		MainFrame.Position = UDim2.fromOffset(vx, vy)
+	end
+
+	if isToggleHiddenToCorner then
+		local tx, ty = getCornerHidePosition(ToggleBtn)
+		ToggleBtn.Position = UDim2.fromOffset(tx, ty)
+	else
+		local tx, ty = clampVisiblePosition(ToggleBtn, ToggleBtn.AbsolutePosition.X, ToggleBtn.AbsolutePosition.Y)
+		ToggleBtn.Position = UDim2.fromOffset(tx, ty)
+	end
+end
+
+task.defer(function()
+	local vp = getViewport()
+	local w = math.clamp(vp.X - 48, 300, 560)
+	local h = math.clamp(vp.Y - 32, 230, 330)
+	MainFrame.Size = UDim2.fromOffset(w, h)
+	local startX = (vp.X - w) * 0.5
+	local startY = (vp.Y - h) * 0.5
+	lastVisibleWindowPos = Vector2.new(startX, startY)
+	MainFrame.Position = UDim2.fromOffset(startX, startY)
+	ToggleBtn.Position = UDim2.fromOffset(14, 14)
+	lastVisibleTogglePos = Vector2.new(14, 14)
+end)
+
+if workspace.CurrentCamera then
+	workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(fitViewport)
+end
+
+-- سحب سلس للنافذة أو الزر مع إمكانية الإخفاء في الزاوية إذا تم سحب العنصر حتى الحافة
+local function attachDraggable(handle, target, onTap, onReleaseCallback)
+	local dragging = false
+	local moved = 0
+	local startInput = Vector2.zero
+	local startPos = Vector2.zero
+
+	handle.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = true
+			moved = 0
+			startInput = input.Position
+			startPos = Vector2.new(target.AbsolutePosition.X, target.AbsolutePosition.Y)
+
+			input.Changed:Connect(function()
+				if input.UserInputState == Enum.UserInputState.End then
+					dragging = false
+					if moved < 8 and type(onTap) == "function" then
+						onTap()
+					elseif type(onReleaseCallback) == "function" then
+						onReleaseCallback(target)
+					end
+				end
+			end)
+		end
+	end)
+
+	UserInputService.InputChanged:Connect(function(input)
+		if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+			local delta = input.Position - startInput
+			moved = math.max(moved, delta.Magnitude)
+			local nextX = startPos.X + delta.X
+			local nextY = startPos.Y + delta.Y
+			target.Position = UDim2.fromOffset(nextX, nextY)
+		end
+	end)
+end
+
+local function checkEdgeCornerSnap(obj, setHiddenFn, setLastPosFn)
+	local vp = getViewport()
+	local pos = obj.AbsolutePosition
+	local sz = obj.AbsoluteSize
+	local nearEdge = (pos.X <= 4) or (pos.Y <= 4) or ((pos.X + sz.X) >= (vp.X - 4)) or ((pos.Y + sz.Y) >= (vp.Y - 4))
+	if nearEdge then
+		setHiddenFn(true)
+	else
+		local vx, vy = clampVisiblePosition(obj, pos.X, pos.Y)
+		setLastPosFn(Vector2.new(vx, vy))
+		tweenPos(obj, vx, vy, 0.18)
+	end
+end
+
+-------------------------------------------------------------------------
+-- الشريط العلوي المرتب
+-------------------------------------------------------------------------
+local TopBar = Instance.new("Frame")
+TopBar.Name = "TopBar"
+TopBar.Size = UDim2.new(1, 0, 0, 28)
+TopBar.BackgroundColor3 = COLORS.TitleBar
+TopBar.BorderSizePixel = 0
+TopBar.Parent = MainFrame
+addCorner(TopBar, 8)
+
+local TopTitle = Instance.new("TextLabel")
+TopTitle.Size = UDim2.new(1, -210, 1, 0)
+TopTitle.Position = UDim2.new(0, 10, 0, 0)
+TopTitle.BackgroundTransparency = 1
+TopTitle.Text = "Roblox Executor"
+TopTitle.TextXAlignment = Enum.TextXAlignment.Left
+TopTitle.TextColor3 = COLORS.TitleText
+TopTitle.Font = Enum.Font.GothamMedium
+TopTitle.TextSize = 12
+TopTitle.TextTruncate = Enum.TextTruncate.AtEnd
+TopTitle.Parent = TopBar
+
+local Views = {}
+
+local function switchView(viewName)
+	setWindowCornerHidden(false)
+	for name, frame in pairs(Views) do
+		frame.Visible = (name == viewName)
+	end
+end
+
+local function makeTopBtn(text, offsetX, widthPx, callback)
+	local b = Instance.new("TextButton")
+	b.Size = UDim2.fromOffset(widthPx, 22)
+	b.Position = UDim2.new(1, offsetX, 0, 3)
+	b.BackgroundColor3 = COLORS.TitleBar
+	b.BorderSizePixel = 0
+	b.Text = text
+	b.TextColor3 = COLORS.TitleText
+	b.Font = Enum.Font.GothamBold
+	b.TextSize = 11
+	b.Parent = TopBar
+	addCorner(b, 5)
+	b.MouseButton1Click:Connect(callback)
+	return b
+end
+
+makeTopBtn("Search", -196, 52, function()
+	switchView("Search")
+end)
+
+makeTopBtn("Ready", -140, 52, function()
+	switchView("Ready")
+end)
+
+makeTopBtn("Editor", -84, 52, function()
+	switchView("Executor")
+end)
+
+makeTopBtn("Hide", -28, 24, function()
+	setWindowCornerHidden(not isWindowHiddenToCorner)
+end)
+
+-------------------------------------------------------------------------
+-- 1) واجهة المُنفِّذ الرئيسية (مطابقة للصورة مع زر Stop)[span_4](start_span)[span_4](end_span)
+-------------------------------------------------------------------------
+local ExecutorView = Instance.new("Frame")
+ExecutorView.Name = "ExecutorView"
+ExecutorView.Size = UDim2.new(1, -24, 1, -40)
+ExecutorView.Position = UDim2.new(0, 12, 0, 34)
+ExecutorView.BackgroundTransparency = 1
+ExecutorView.Visible = true
+ExecutorView.Parent = MainFrame
+Views.Executor = ExecutorView
+
+local HeaderLabel = Instance.new("TextLabel")
+HeaderLabel.Size = UDim2.new(1, 0, 0, 22)
+HeaderLabel.Position = UDim2.new(0, 0, 0, 0)
+HeaderLabel.BackgroundTransparency = 1
+HeaderLabel.Text = "Roblox Executor"
+HeaderLabel.TextXAlignment = Enum.TextXAlignment.Left
+HeaderLabel.TextColor3 = COLORS.TextMain
+HeaderLabel.Font = Enum.Font.GothamBold
+HeaderLabel.TextSize = 14
+HeaderLabel.Parent = ExecutorView
+
+local EditorBoxWrap = Instance.new("Frame")
+EditorBoxWrap.Size = UDim2.new(1, 0, 1, -68)
+EditorBoxWrap.Position = UDim2.new(0, 0, 0, 26)
+EditorBoxWrap.BackgroundColor3 = COLORS.EditorBg
+EditorBoxWrap.BorderSizePixel = 1
+EditorBoxWrap.BorderColor3 = COLORS.Border
+EditorBoxWrap.Parent = ExecutorView
+addCorner(EditorBoxWrap, 6)
+
+local CodeInput = Instance.new("TextBox")
+CodeInput.Name = "CodeInput"
+CodeInput.Size = UDim2.new(1, -12, 1, -12)
+CodeInput.Position = UDim2.new(0, 6, 0, 6)
+CodeInput.BackgroundTransparency = 1
+CodeInput.MultiLine = true
+CodeInput.ClearTextOnFocus = false
+CodeInput.TextWrapped = false
+CodeInput.TextXAlignment = Enum.TextXAlignment.Left
+CodeInput.TextYAlignment = Enum.TextYAlignment.Top
+CodeInput.Text = 'print("hello world")'
+CodeInput.PlaceholderText = "-- اكتب سكربت أو loadstring هنا..."
+CodeInput.PlaceholderColor3 = COLORS.TextSub
+CodeInput.TextColor3 = COLORS.TextMain
+CodeInput.Font = Enum.Font.Code
+CodeInput.TextSize = 13
+CodeInput.Parent = EditorBoxWrap
+
+local BottomBar = Instance.new("Frame")
+BottomBar.Size = UDim2.new(1, 0, 0, 30)
+BottomBar.Position = UDim2.new(0, 0, 1, -34)
+BottomBar.BackgroundTransparency = 1
+BottomBar.Parent = ExecutorView
+
+local BottomGrid = Instance.new("UIListLayout")
+BottomGrid.FillDirection = Enum.FillDirection.Horizontal
+BottomGrid.HorizontalAlignment = Enum.HorizontalAlignment.Center
+BottomGrid.VerticalAlignment = Enum.VerticalAlignment.Center
+BottomGrid.Padding = UDim.new(0, 8)
+BottomGrid.Parent = BottomBar
+
+local function makeBottomBtn(text, bgColor, callback)
+	local btn = Instance.new("TextButton")
+	btn.Size = UDim2.fromOffset(96, 28)
+	btn.BackgroundColor3 = bgColor
+	btn.BorderSizePixel = 0
+	btn.Text = text
+	btn.TextColor3 = COLORS.TextMain
+	btn.Font = Enum.Font.GothamMedium
+	btn.TextSize = 11
+	btn.Parent = BottomBar
+	addCorner(btn, 5)
+	btn.MouseButton1Click:Connect(callback)
+	return btn
+end
+
+makeBottomBtn("Inject", COLORS.BtnSlate, function()
+	HeaderLabel.Text = "Roblox Executor  [Ready]"
+end)
+
+makeBottomBtn("Execute", COLORS.BtnMutedTeal, function()
+	runLoadstring(CodeInput.Text, "MainEditor")
+end)
+
+makeBottomBtn("Stop", COLORS.BtnStop, function()
+	stopAllFeatures()
+	HeaderLabel.Text = "Roblox Executor  [Stopped]"
+end)
+
+makeBottomBtn("Clear", COLORS.BtnNeutral, function()
+	CodeInput.Text = ""
+end)
+
+-------------------------------------------------------------------------
+-- 2) واجهة السكربتات الجاهزة (سرعة، قفز، قفز لا نهاية، ESP بمربعات + إيقاف)
+-------------------------------------------------------------------------
+local ReadyView = Instance.new("Frame")
+ReadyView.Name = "ReadyView"
+ReadyView.Size = UDim2.new(1, -24, 1, -40)
+ReadyView.Position = UDim2.new(0, 12, 0, 34)
+ReadyView.BackgroundTransparency = 1
+ReadyView.Visible = false
+ReadyView.Parent = MainFrame
+Views.Ready = ReadyView
+
+local ReadyHeader = Instance.new("Frame")
+ReadyHeader.Size = UDim2.new(1, 0, 0, 28)
+ReadyHeader.BackgroundColor3 = COLORS.EditorBg
+ReadyHeader.BorderSizePixel = 1
+ReadyHeader.BorderColor3 = COLORS.Border
+ReadyHeader.Parent = ReadyView
+addCorner(ReadyHeader, 6)
+
+local ReadyTitle = Instance.new("TextLabel")
+ReadyTitle.Size = UDim2.new(1, -96, 1, 0)
+ReadyTitle.Position = UDim2.new(0, 10, 0, 0)
+ReadyTitle.BackgroundTransparency = 1
+ReadyTitle.Text = "Ready Scripts"
+ReadyTitle.TextXAlignment = Enum.TextXAlignment.Left
+ReadyTitle.TextColor3 = COLORS.TextMain
+ReadyTitle.Font = Enum.Font.GothamBold
+ReadyTitle.TextSize = 12
+ReadyTitle.Parent = ReadyHeader
+
+local StopAllReadyBtn = Instance.new("TextButton")
+StopAllReadyBtn.Size = UDim2.fromOffset(78, 22)
+StopAllReadyBtn.Position = UDim2.new(1, -84, 0, 3)
+StopAllReadyBtn.BackgroundColor3 = COLORS.BtnStop
+StopAllReadyBtn.BorderSizePixel = 0
+StopAllReadyBtn.Text = "Stop All"
+StopAllReadyBtn.TextColor3 = COLORS.TextMain
+StopAllReadyBtn.Font = Enum.Font.GothamBold
+StopAllReadyBtn.TextSize = 11
+StopAllReadyBtn.Parent = ReadyHeader
+addCorner(StopAllReadyBtn, 5)
+
+local ReadyList = Instance.new("ScrollingFrame")
+ReadyList.Size = UDim2.new(1, 0, 1, -36)
+ReadyList.Position = UDim2.new(0, 0, 0, 36)
+ReadyList.BackgroundColor3 = COLORS.EditorBg
+ReadyList.BorderSizePixel = 1
+ReadyList.BorderColor3 = COLORS.Border
+ReadyList.ScrollBarThickness = 5
+ReadyList.CanvasSize = UDim2.new(0, 0, 0, 0)
+ReadyList.AutomaticCanvasSize = Enum.AutomaticSize.Y
+ReadyList.Parent = ReadyView
+addCorner(ReadyList, 6)
+
+local ReadyLayout = Instance.new("UIListLayout")
+ReadyLayout.Padding = UDim.new(0, 6)
+ReadyLayout.SortOrder = Enum.SortOrder.LayoutOrder
+ReadyLayout.Parent = ReadyList
+
+local ReadyPad = Instance.new("UIPadding")
+ReadyPad.PaddingTop = UDim.new(0, 6)
+ReadyPad.PaddingLeft = UDim.new(0, 6)
+ReadyPad.PaddingRight = UDim.new(0, 6)
+ReadyPad.PaddingBottom = UDim.new(0, 6)
+ReadyPad.Parent = ReadyList
+
+local readyCardsRefreshers = {}
+
+local function createReadyModuleCard(titleText, descText, orderNum, getActiveFn, toggleFn)
+	local card = Instance.new("Frame")
+	card.LayoutOrder = orderNum
+	card.Size = UDim2.new(1, 0, 0, 48)
+	card.BackgroundColor3 = COLORS.CardBg
+	card.BorderSizePixel = 0
+	card.Parent = ReadyList
+	addCorner(card, 6)
+
+	local tLbl = Instance.new("TextLabel")
+	tLbl.Size = UDim2.new(1, -150, 0, 18)
+	tLbl.Position = UDim2.new(0, 10, 0, 6)
+	tLbl.BackgroundTransparency = 1
+	tLbl.Text = titleText
+	tLbl.TextColor3 = COLORS.TextMain
+	tLbl.TextXAlignment = Enum.TextXAlignment.Left
+	tLbl.Font = Enum.Font.GothamBold
+	tLbl.TextSize = 12
+	tLbl.Parent = card
+
+	local dLbl = Instance.new("TextLabel")
+	dLbl.Size = UDim2.new(1, -150, 0, 15)
+	dLbl.Position = UDim2.new(0, 10, 0, 25)
+	dLbl.BackgroundTransparency = 1
+	dLbl.Text = descText
+	dLbl.TextColor3 = COLORS.TextSub
+	dLbl.TextXAlignment = Enum.TextXAlignment.Left
+	dLbl.Font = Enum.Font.Gotham
+	dLbl.TextSize = 11
+	dLbl.Parent = card
+
+	local toggleBtn = Instance.new("TextButton")
+	toggleBtn.Size = UDim2.fromOffset(64, 24)
+	toggleBtn.Position = UDim2.new(1, -136, 0.5, -12)
+	toggleBtn.BorderSizePixel = 0
+	toggleBtn.Font = Enum.Font.GothamBold
+	toggleBtn.TextSize = 11
+	toggleBtn.TextColor3 = COLORS.TextMain
+	toggleBtn.Parent = card
+	addCorner(toggleBtn, 5)
+
+	local stopBtn = Instance.new("TextButton")
+	stopBtn.Size = UDim2.fromOffset(58, 24)
+	stopBtn.Position = UDim2.new(1, -66, 0.5, -12)
+	stopBtn.BackgroundColor3 = COLORS.BtnStop
+	stopBtn.BorderSizePixel = 0
+	stopBtn.Text = "Stop"
+	stopBtn.TextColor3 = COLORS.TextMain
+	stopBtn.Font = Enum.Font.GothamBold
+	stopBtn.TextSize = 11
+	stopBtn.Parent = card
+	addCorner(stopBtn, 5)
+
+	local function refreshVisual()
+		local active = getActiveFn()
+		toggleBtn.Text = active and "ON" or "OFF"
+		toggleBtn.BackgroundColor3 = active and COLORS.BtnMutedTeal or COLORS.BtnNeutral
+	end
+
+	refreshVisual()
+	table.insert(readyCardsRefreshers, refreshVisual)
+
+	toggleBtn.MouseButton1Click:Connect(function()
+		toggleFn(not getActiveFn())
+		refreshVisual()
+	end)
+
+	stopBtn.MouseButton1Click:Connect(function()
+		toggleFn(false)
+		refreshVisual()
+	end)
+end
+
+local function refreshAllReadyCards()
+	for _, fn in ipairs(readyCardsRefreshers) do
+		fn()
+	end
+end
+
+StopAllReadyBtn.MouseButton1Click:Connect(function()
+	stopAllFeatures()
+	refreshAllReadyCards()
+end)
+
+createReadyModuleCard("سرعة (Speed)", "WalkSpeed = 36", 1, function()
+	return ReadyState.SpeedEnabled
+end, function(state)
+	ReadyState.SpeedEnabled = state
+	applyMovementStats()
+end)
+
+createReadyModuleCard("قفز (Jump)", "JumpPower = 85", 2, function()
+	return ReadyState.JumpEnabled
+end, function(state)
+	ReadyState.JumpEnabled = state
+	applyMovementStats()
+end)
+
+createReadyModuleCard("قفز لا نهاية (Inf Jump)", "Infinite Air Jump", 3, function()
+	return ReadyState.InfJumpEnabled
+end, function(state)
+	setInfJump(state)
+end)
+
+createReadyModuleCard("ESP بمربعات (Box ESP)", "3D Boxes Around Players", 4, function()
+	return ReadyState.BoxEspEnabled
+end, function(state)
+	setBoxEsp(state)
+end)
+
+-------------------------------------------------------------------------
+-- 3) واجهة البحث المحسّنة (جلب صفحات متعددة + فلترة + منع التكرار)
+-------------------------------------------------------------------------
+local SearchView = Instance.new("Frame")
+SearchView.Name = "SearchView"
+SearchView.Size = UDim2.new(1, -24, 1, -40)
+SearchView.Position = UDim2.new(0, 12, 0, 34)
+SearchView.BackgroundTransparency = 1
+SearchView.Visible = false
+SearchView.Parent = MainFrame
+Views.Search = SearchView
+
+local SearchTop = Instance.new("Frame")
+SearchTop.Size = UDim2.new(1, 0, 0, 30)
+SearchTop.BackgroundColor3 = COLORS.EditorBg
+SearchTop.BorderSizePixel = 1
+SearchTop.BorderColor3 = COLORS.Border
+SearchTop.Parent = SearchView
+addCorner(SearchTop, 6)
+
+local SearchIco = Instance.new("ImageLabel")
+SearchIco.Size = UDim2.fromOffset(14, 14)
+SearchIco.Position = UDim2.new(0, 8, 0.5, -7)
+SearchIco.BackgroundTransparency = 1
+SearchIco.Image = ICONS.Search
+SearchIco.ImageColor3 = COLORS.TextSub
+SearchIco.ScaleType = Enum.ScaleType.Fit
+SearchIco.Parent = SearchTop
+
+local SearchBox = Instance.new("TextBox")
+SearchBox.Size = UDim2.new(1, -172, 1, 0)
+SearchBox.Position = UDim2.new(0, 28, 0, 0)
+SearchBox.BackgroundTransparency = 1
+SearchBox.ClearTextOnFocus = false
+SearchBox.PlaceholderText = "ابحث عن سكربت..."
+SearchBox.PlaceholderColor3 = COLORS.TextSub
+SearchBox.TextColor3 = COLORS.TextMain
+SearchBox.TextXAlignment = Enum.TextXAlignment.Left
+SearchBox.Font = Enum.Font.Gotham
+SearchBox.TextSize = 12
+SearchBox.Text = ""
+SearchBox.Parent = SearchTop
+
+local CountBadge = Instance.new("TextLabel")
+CountBadge.Size = UDim2.fromOffset(38, 22)
+CountBadge.Position = UDim2.new(1, -162, 0, 4)
+CountBadge.BackgroundTransparency = 1
+CountBadge.Text = "0"
+CountBadge.TextColor3 = COLORS.TextSub
+CountBadge.Font = Enum.Font.GothamBold
+CountBadge.TextSize = 11
+CountBadge.Parent = SearchTop
+
+local DoSearchBtn = Instance.new("TextButton")
+DoSearchBtn.Size = UDim2.fromOffset(60, 24)
+DoSearchBtn.Position = UDim2.new(1, -120, 0, 3)
+DoSearchBtn.BackgroundColor3 = COLORS.BtnNeutral
+DoSearchBtn.BorderSizePixel = 0
+DoSearchBtn.Text = "Search"
+DoSearchBtn.TextColor3 = COLORS.TextMain
+DoSearchBtn.Font = Enum.Font.GothamBold
+DoSearchBtn.TextSize = 11
+DoSearchBtn.Parent = SearchTop
+addCorner(DoSearchBtn, 5)
+
+local MoreBtn = Instance.new("TextButton")
+MoreBtn.Size = UDim2.fromOffset(52, 24)
+MoreBtn.Position = UDim2.new(1, -56, 0, 3)
+MoreBtn.BackgroundColor3 = COLORS.BtnSlate
+MoreBtn.BorderSizePixel = 0
+MoreBtn.Text = "+More"
+MoreBtn.TextColor3 = COLORS.TextMain
+MoreBtn.Font = Enum.Font.GothamBold
+MoreBtn.TextSize = 11
+MoreBtn.Parent = SearchTop
+addCorner(MoreBtn, 5)
+
+local ListScroll = Instance.new("ScrollingFrame")
+ListScroll.Size = UDim2.new(1, 0, 1, -38)
+ListScroll.Position = UDim2.new(0, 0, 0, 38)
+ListScroll.BackgroundColor3 = COLORS.EditorBg
+ListScroll.BorderSizePixel = 1
+ListScroll.BorderColor3 = COLORS.Border
+ListScroll.ScrollBarThickness = 5
+ListScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+ListScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+ListScroll.Parent = SearchView
+addCorner(ListScroll, 6)
+
+local ListLayout = Instance.new("UIListLayout")
+ListLayout.Padding = UDim.new(0, 6)
+ListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+ListLayout.Parent = ListScroll
+
+local ListPad = Instance.new("UIPadding")
+ListPad.PaddingTop = UDim.new(0, 6)
+ListPad.PaddingLeft = UDim.new(0, 6)
+ListPad.PaddingRight = UDim.new(0, 6)
+ListPad.PaddingBottom = UDim.new(0, 6)
+ListPad.Parent = ListScroll
+
+local activeQuery = "hub"
+local loadedPage = 0
+local cardOrder = 0
+local seenKeys = {}
+
+local function updateCountBadge()
+	local visibleCount = 0
+	for _, row in ipairs(ListScroll:GetChildren()) do
+		if row:IsA("Frame") and row.Visible then
+			visibleCount += 1
+		end
+	end
+	CountBadge.Text = tostring(visibleCount)
+end
+
+local function filterCards()
+	local q = string.lower(SearchBox.Text or "")
+	for _, row in ipairs(ListScroll:GetChildren()) do
+		if row:IsA("Frame") then
+			local tObj = row:FindFirstChild("ItemTitle")
+			local sObj = row:FindFirstChild("SubTitle")
+			local tStr = tObj and string.lower(tObj.Text) or ""
+			local sStr = sObj and string.lower(sObj.Text) or ""
+			row.Visible = (q == "" or string.find(tStr, q, 1, true) ~= nil or string.find(sStr, q, 1, true) ~= nil)
+		end
+	end
+	updateCountBadge()
+end
+
+SearchBox:GetPropertyChangedSignal("Text"):Connect(filterCards)
+
+local function resetResults()
+	cardOrder = 0
+	loadedPage = 0
+	table.clear(seenKeys)
+	for _, row in ipairs(ListScroll:GetChildren()) do
+		if row:IsA("Frame") then
+			row:Destroy()
+		end
+	end
+	CountBadge.Text = "0"
+end
+
+local function addResultRow(title, gameName, rawCode, thumbAsset)
+	cardOrder += 1
+	local row = Instance.new("Frame")
+	row.LayoutOrder = cardOrder
+	row.Size = UDim2.new(1, 0, 0, 56)
+	row.BackgroundColor3 = COLORS.CardBg
+	row.BorderSizePixel = 0
+	row.Parent = ListScroll
+	addCorner(row, 6)
+
+	local img = Instance.new("ImageLabel")
+	img.Size = UDim2.fromOffset(44, 44)
+	img.Position = UDim2.new(0, 6, 0.5, -22)
+	img.BackgroundColor3 = COLORS.WindowBg
+	img.BorderSizePixel = 0
+	img.Image = (type(thumbAsset) == "string" and thumbAsset ~= "") and thumbAsset or ICONS.Thumb
+	img.ScaleType = Enum.ScaleType.Crop
+	img.Parent = row
+	addCorner(img, 5)
+
+	local lbl = Instance.new("TextLabel")
+	lbl.Name = "ItemTitle"
+	lbl.Size = UDim2.new(1, -195, 0, 20)
+	lbl.Position = UDim2.new(0, 56, 0, 8)
+	lbl.BackgroundTransparency = 1
+	lbl.Text = tostring(title or "Script")
+	lbl.TextColor3 = COLORS.TextMain
+	lbl.TextXAlignment = Enum.TextXAlignment.Left
+	lbl.TextTruncate = Enum.TextTruncate.AtEnd
+	lbl.Font = Enum.Font.GothamBold
+	lbl.TextSize = 12
+	lbl.Parent = row
+
+	local sub = Instance.new("TextLabel")
+	sub.Name = "SubTitle"
+	sub.Size = UDim2.new(1, -195, 0, 16)
+	sub.Position = UDim2.new(0, 56, 0, 28)
+	sub.BackgroundTransparency = 1
+	sub.Text = tostring(gameName or "Universal")
+	sub.TextColor3 = COLORS.TextSub
+	sub.TextXAlignment = Enum.TextXAlignment.Left
+	sub.TextTruncate = Enum.TextTruncate.AtEnd
+	sub.Font = Enum.Font.Gotham
+	sub.TextSize = 11
+	sub.Parent = row
+
+	local execBtn = Instance.new("TextButton")
+	execBtn.Size = UDim2.fromOffset(56, 24)
+	execBtn.Position = UDim2.new(1, -126, 0.5, -12)
+	execBtn.BackgroundColor3 = COLORS.BtnMutedTeal
+	execBtn.BorderSizePixel = 0
+	execBtn.Text = "Run"
+	execBtn.TextColor3 = COLORS.TextMain
+	execBtn.Font = Enum.Font.GothamBold
+	execBtn.TextSize = 11
+	execBtn.Parent = row
+	addCorner(execBtn, 5)
+
+	local useBtn = Instance.new("TextButton")
+	useBtn.Size = UDim2.fromOffset(58, 24)
+	useBtn.Position = UDim2.new(1, -64, 0.5, -12)
+	useBtn.BackgroundColor3 = COLORS.BtnNeutral
+	useBtn.BorderSizePixel = 0
+	useBtn.Text = "Load"
+	useBtn.TextColor3 = COLORS.TextMain
+	useBtn.Font = Enum.Font.GothamBold
+	useBtn.TextSize = 11
+	useBtn.Parent = row
+	addCorner(useBtn, 5)
+
+	execBtn.MouseButton1Click:Connect(function()
+		runLoadstring(rawCode, title)
+	end)
+
+	useBtn.MouseButton1Click:Connect(function()
+		CodeInput.Text = tostring(rawCode or "")
+		switchView("Executor")
+	end)
+end
+
+local function fetchSinglePage(queryText, pageNum)
+	local term = tostring(queryText or ""):gsub("^%s+", ""):gsub("%s+$", "")
+	if term == "" then
+		term = "hub"
+	end
+
+	local url = "https://scriptblox.com/api/script/search?q=" .. HttpService:UrlEncode(term) .. "&page=" .. tostring(pageNum)
+	local ok, raw = pcall(function()
+		return game:HttpGetAsync(url)
+	end)
+	if not ok or not raw then
+		return 0
+	end
+
+	local decOk, data = pcall(function()
+		return HttpService:JSONDecode(raw)
+	end)
+	if not decOk or not data or not data.result or type(data.result.scripts) ~= "table" then
+		return 0
+	end
+
+	local added = 0
+	for _, sc in ipairs(data.result.scripts) do
+		local isFree = (sc.scriptType == nil or sc.scriptType == "free")
+		local notPatched = (sc.isPatched ~= true)
+		if isFree and notPatched and sc.script then
+			local uniqueKey = tostring(sc._id or sc.title or "") .. "|" .. tostring(#sc.script)
+			if not seenKeys[uniqueKey] then
+				seenKeys[uniqueKey] = true
+				local thumb = ICONS.Thumb
+				if not sc.isUniversal and sc.game and sc.game.gameId then
+					thumb = "https://assetgame.roblox.com/Game/Tools/ThumbnailAsset.ashx?aid=" .. tostring(sc.game.gameId) .. "&fmt=png&wd=420&ht=420"
+				end
+				addResultRow(sc.title, sc.game and sc.game.name or "Universal", sc.script, thumb)
+				added += 1
+			end
+		end
+	end
+	return added
+end
+
+local function runSearchBatch(queryText, pagesCount)
+	resetResults()
+	activeQuery = queryText
+	for p = 1, (pagesCount or 2) do
+		loadedPage = p
+		local added = fetchSinglePage(activeQuery, p)
+		if added == 0 then
+			break
+		end
+	end
+	filterCards()
+end
+
+DoSearchBtn.MouseButton1Click:Connect(function()
+	runSearchBatch(SearchBox.Text, 2)
+end)
+
+MoreBtn.MouseButton1Click:Connect(function()
+	loadedPage += 1
+	fetchSinglePage(activeQuery, loadedPage)
+	filterCards()
+end)
+
+SearchBox.FocusLost:Connect(function(enterPressed)
+	if enterPressed then
+		runSearchBatch(SearchBox.Text, 2)
+	end
+end)
+
+-------------------------------------------------------------------------
+-- ربط الحركة والسحب والإخفاء في الزوايا
+-------------------------------------------------------------------------
+attachDraggable(TopBar, MainFrame, nil, function(frameObj)
+	checkEdgeCornerSnap(frameObj, setWindowCornerHidden, function(v)
+		lastVisibleWindowPos = v
+	end)
+end)
+
+attachDraggable(ToggleBtn, ToggleBtn, function()
+	if isToggleHiddenToCorner then
+		setToggleCornerHidden(false)
+		MainFrame.Visible = true
+		setWindowCornerHidden(false)
+	else
+		local nextVisible = not MainFrame.Visible
+		MainFrame.Visible = nextVisible
+		if nextVisible then
+			setWindowCornerHidden(false)
+		else
+			setWindowCornerHidden(true)
+		end
+	end
+end, function(btnObj)
+	checkEdgeCornerSnap(btnObj, setToggleCornerHidden, function(v)
+		lastVisibleTogglePos = v
+	end)
+end)
